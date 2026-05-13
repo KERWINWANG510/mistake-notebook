@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
-import { useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import { NButton, NEllipsis, NPopconfirm, NSelect, NSpin, useMessage } from "naive-ui";
 import type { Grade, Mistake, SubjectMistakeSummary } from "../api/client";
 import { deleteMistake, fetchGrades, fetchMistakes, fetchSubjectMistakeSummary } from "../api/client";
@@ -13,6 +13,7 @@ import {
 } from "../utils/inferGrade";
 
 const router = useRouter();
+const route = useRoute();
 const message = useMessage();
 const auth = useAuthStore();
 
@@ -27,6 +28,57 @@ const subjectSummaries = ref<SubjectMistakeSummary[]>([]);
 const mistakes = ref<Mistake[]>([]);
 const viewMode = ref<ViewMode>("subjects");
 const activeSubject = ref<SubjectMistakeSummary | null>(null);
+let initializing = true;
+
+function hubQueryFromState(): Record<string, string> {
+  const query: Record<string, string> = {};
+  if (selectedGradeId.value) query.grade = selectedGradeId.value;
+  if (viewMode.value === "mistakes" && activeSubject.value) {
+    query.subject = activeSubject.value.subject_id;
+  }
+  return query;
+}
+
+function routeQueryMatchesState(): boolean {
+  const next = hubQueryFromState();
+  const grade = typeof route.query.grade === "string" ? route.query.grade : undefined;
+  const subject = typeof route.query.subject === "string" ? route.query.subject : undefined;
+  return next.grade === grade && next.subject === subject;
+}
+
+function syncRouteQuery() {
+  if (route.path !== "/mistakes") return;
+  const next = hubQueryFromState();
+  if (routeQueryMatchesState()) return;
+  router.replace({ path: "/mistakes", query: next });
+}
+
+function applyRouteQuery() {
+  const qSubject = typeof route.query.subject === "string" ? route.query.subject : null;
+  if (!qSubject) {
+    viewMode.value = "subjects";
+    activeSubject.value = null;
+    mistakes.value = [];
+    return;
+  }
+
+  const qGrade = typeof route.query.grade === "string" ? route.query.grade : null;
+  if (qGrade && grades.value.some((g) => g.id === qGrade)) {
+    selectedGradeId.value = qGrade;
+  }
+
+  const summary = subjectSummaries.value.find((s) => s.subject_id === qSubject);
+  if (summary) {
+    activeSubject.value = summary;
+    viewMode.value = "mistakes";
+    void loadMistakes();
+    return;
+  }
+
+  viewMode.value = "subjects";
+  activeSubject.value = null;
+  mistakes.value = [];
+}
 
 const gradeOptions = computed(() => grades.value.map((g) => ({ label: g.name, value: g.id })));
 
@@ -112,28 +164,47 @@ async function init() {
   try {
     if (!auth.me) await auth.fetchMe();
     await loadGrades();
+
+    const qGrade = typeof route.query.grade === "string" ? route.query.grade : null;
+    if (qGrade && grades.value.some((g) => g.id === qGrade)) {
+      selectedGradeId.value = qGrade;
+    }
+
     await loadSubjectSummaries();
+    applyRouteQuery();
   } catch (e) {
     message.error((e as Error).message);
   } finally {
     loading.value = false;
+    initializing = false;
   }
 }
 
 onMounted(init);
 
+watch(
+  () => ({ grade: route.query.grade, subject: route.query.subject }),
+  () => {
+    if (initializing || route.path !== "/mistakes") return;
+    applyRouteQuery();
+  },
+);
+
 watch(selectedGradeId, async () => {
+  if (initializing) return;
   if (viewMode.value === "mistakes") {
     viewMode.value = "subjects";
     activeSubject.value = null;
     mistakes.value = [];
   }
+  syncRouteQuery();
   await loadSubjectSummaries();
 });
 
 function openSubject(summary: SubjectMistakeSummary) {
   activeSubject.value = summary;
   viewMode.value = "mistakes";
+  syncRouteQuery();
   void loadMistakes();
 }
 
@@ -141,6 +212,7 @@ function backToSubjects() {
   viewMode.value = "subjects";
   activeSubject.value = null;
   mistakes.value = [];
+  syncRouteQuery();
 }
 
 function resetToInferred() {
@@ -172,7 +244,15 @@ function formatDate(iso: string) {
 
 <template>
   <div class="mistake-hub page-root">
-    <section class="mistake-hub__header">
+    <section
+      class="mistake-hub__header"
+      :class="{
+        'mistake-hub__header--subjects': viewMode === 'subjects',
+        'mistake-hub__header--mistakes': viewMode === 'mistakes',
+        'mistake-hub__header--grade-overridden':
+          inferredGradeId != null && selectedGradeId !== inferredGradeId,
+      }"
+    >
       <div class="mistake-hub__header-top">
         <div class="mistake-hub__header-left">
           <NButton
@@ -201,14 +281,17 @@ function formatDate(iso: string) {
           />
           <NButton
             v-if="inferredGradeId && selectedGradeId !== inferredGradeId"
+            class="mistake-hub__reset-inferred"
             quaternary
             size="tiny"
             @click="resetToInferred"
           >
-            恢复推断
+            <span class="mistake-hub__reset-label mistake-hub__reset-label--full">恢复推断</span>
+            <span class="mistake-hub__reset-label mistake-hub__reset-label--short">推断</span>
           </NButton>
           <NButton class="mistake-hub__add-btn" type="primary" size="small" @click="router.push('/mistakes/new')">
-            录入错题
+            <span class="mistake-hub__add-label mistake-hub__add-label--full">录入错题</span>
+            <span class="mistake-hub__add-label mistake-hub__add-label--short">录入</span>
           </NButton>
         </div>
       </div>
@@ -255,8 +338,8 @@ function formatDate(iso: string) {
             class="mistake-tile"
             role="button"
             tabindex="0"
-            @click="router.push(`/mistakes/${m.id}`)"
-            @keydown.enter="router.push(`/mistakes/${m.id}`)"
+            @click="router.push({ path: `/mistakes/${m.id}`, query: route.query })"
+            @keydown.enter="router.push({ path: `/mistakes/${m.id}`, query: route.query })"
           >
             <div class="mistake-tile__top">
               <span class="mistake-tile__date">{{ formatDate(m.created_at) }}</span>
@@ -561,28 +644,100 @@ function formatDate(iso: string) {
   max-width: 280px;
 }
 
+.mistake-hub__add-label--short {
+  display: none;
+}
+
+.mistake-hub__reset-label--short {
+  display: none;
+}
+
 @media (max-width: 768px) {
+  .mistake-hub {
+    gap: 8px;
+  }
+
   .mistake-hub__header {
-    padding: 10px 12px;
+    padding: 8px 10px;
+    border-radius: 12px;
+    background: #fff;
+    box-shadow: 0 1px 6px rgba(15, 23, 42, 0.05);
   }
 
   .mistake-hub__header-top {
-    flex-direction: column;
-    align-items: stretch;
+    flex-direction: row;
+    align-items: center;
+    flex-wrap: nowrap;
+    gap: 8px;
+  }
+
+  .mistake-hub__header-left {
+    flex: 0 0 auto;
+    min-width: 0;
+  }
+
+  .mistake-hub__title {
+    font-size: 1.05rem;
   }
 
   .mistake-hub__header-actions {
-    width: 100%;
+    flex: 1 1 auto;
+    min-width: 0;
+    justify-content: flex-end;
   }
 
   .mistake-hub__grade-select {
     flex: 1 1 auto;
     width: auto;
     min-width: 0;
+    max-width: 108px;
   }
 
   .mistake-hub__add-btn {
     flex-shrink: 0;
+    padding-left: 10px !important;
+    padding-right: 10px !important;
+  }
+
+  .mistake-hub__add-label--full {
+    display: none;
+  }
+
+  .mistake-hub__add-label--short {
+    display: inline;
+  }
+
+  .mistake-hub__header--subjects .mistake-hub__subtitle {
+    display: none;
+  }
+
+  .mistake-hub__reset-inferred {
+    flex-shrink: 0;
+    padding-left: 6px !important;
+    padding-right: 6px !important;
+    font-size: 12px;
+  }
+
+  .mistake-hub__reset-label--full {
+    display: none;
+  }
+
+  .mistake-hub__reset-label--short {
+    display: inline;
+  }
+
+  .mistake-hub__header--grade-overridden .mistake-hub__grade-select {
+    max-width: 92px;
+  }
+
+  .mistake-hub__header--mistakes .mistake-hub__subtitle {
+    font-size: 11px;
+    margin-top: 0;
+  }
+
+  .mistake-hub__header--mistakes .mistake-hub__title-wrap {
+    flex: 1;
+    min-width: 0;
   }
 }
 </style>

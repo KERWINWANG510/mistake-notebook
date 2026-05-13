@@ -19,7 +19,7 @@ import {
 } from "naive-ui";
 import type { Subject, Grade } from "../api/client";
 import { analyzeImage, createMistake, fetchGrades, fetchSubjects, solveFromStem } from "../api/client";
-import FormattedAnalysis from "../components/FormattedAnalysis.vue";
+import AnalysisField from "../components/AnalysisField.vue";
 
 const router = useRouter();
 const message = useMessage();
@@ -677,9 +677,10 @@ async function save() {
                   </NFormItem>
 
                   <NFormItem label="解题思路" :show-feedback="false" class="mistake-new__item" label-placement="top">
-                    <div class="formatted-analysis--panel formatted-analysis--panel--fill">
-                      <FormattedAnalysis :text="analysis" empty-text="识别或根据题干生成后将显示解题思路" />
-                    </div>
+                    <AnalysisField
+                      v-model="analysis"
+                      empty-text="识别或根据题干生成后将显示解题思路"
+                    />
                   </NFormItem>
 
                   <NFormItem label="答案" :show-feedback="false" class="mistake-new__item" label-placement="top">
@@ -842,6 +843,15 @@ async function save() {
   padding-bottom: 4px;
   font-size: 13px;
   font-weight: 500;
+}
+
+.mistake-new__item :deep(.n-form-item-blank) {
+  width: 100%;
+  min-width: 0;
+}
+
+.mistake-new__item :deep(.n-input) {
+  width: 100%;
 }
 
 @media (max-width: 768px) {

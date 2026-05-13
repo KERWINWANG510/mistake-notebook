@@ -352,6 +352,50 @@ body {
   border-top: 1px solid var(--app-border);
 }
 
+/* 页面底栏固定于视口底部（详情/编辑等长页） */
+.page-root--fixed-actions {
+  padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px));
+}
+
+.app-actions--fixed {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 90;
+  margin-top: 0;
+  padding: 0;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-top: 1px solid var(--app-border);
+  box-shadow: 0 -4px 24px rgba(15, 23, 42, 0.06);
+  box-sizing: border-box;
+}
+
+.app-actions--fixed-inner {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 12px 20px;
+  padding-left: max(20px, env(safe-area-inset-left, 0px));
+  padding-right: max(20px, env(safe-area-inset-right, 0px));
+  box-sizing: border-box;
+}
+
+@media (max-width: 768px) {
+  .app-actions--fixed-inner {
+    padding-left: max(14px, env(safe-area-inset-left, 0px));
+    padding-right: max(14px, env(safe-area-inset-right, 0px));
+  }
+}
+
 /* 解题思路排版展示（Markdown 轻量渲染） */
 .formatted-analysis {
   font-size: 14px;
@@ -404,6 +448,9 @@ body {
 }
 
 .formatted-analysis--panel {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
   margin-top: 8px;
   padding: 12px 14px;
   border-radius: 10px;

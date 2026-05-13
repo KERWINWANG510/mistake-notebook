@@ -46,11 +46,21 @@ onMounted(load);
 onBeforeUnmount(() => {
   if (imageObjectUrl.value) URL.revokeObjectURL(imageObjectUrl.value);
 });
+
+function backToList() {
+  const grade = row.value?.grade_level_id ?? (typeof route.query.grade === "string" ? route.query.grade : null);
+  const subject = row.value?.subject_id ?? (typeof route.query.subject === "string" ? route.query.subject : null);
+  if (grade && subject) {
+    router.push({ path: "/mistakes", query: { grade, subject } });
+    return;
+  }
+  router.push("/mistakes");
+}
 </script>
 
 <template>
   <NSpin :show="loading">
-    <div v-if="row" class="mistake-detail page-root">
+    <div v-if="row" class="mistake-detail page-root page-root--fixed-actions">
       <header class="page-header mistake-detail__header">
         <h1 class="page-header__title">错题详情</h1>
         <p class="page-header__desc">仅供查看与复习；需要修改请返回列表点击「编辑」。</p>
@@ -93,13 +103,17 @@ onBeforeUnmount(() => {
             <h2 class="mistake-detail__section-title">答案</h2>
             <div class="mistake-detail__text">{{ row.answer || "—" }}</div>
           </section>
-
-          <footer class="app-actions app-actions--bar">
-            <NButton size="small" @click="router.push('/mistakes')">返回列表</NButton>
-            <NButton size="small" type="primary" secondary @click="router.push(`/mistakes/${id}/edit`)">编辑</NButton>
-          </footer>
         </NSpace>
       </NCard>
+
+      <Teleport to="body">
+        <footer class="app-actions app-actions--bar app-actions--fixed">
+          <div class="app-actions--fixed-inner">
+            <NButton size="small" @click="backToList">返回列表</NButton>
+            <NButton size="small" type="primary" secondary @click="router.push(`/mistakes/${id}/edit`)">编辑</NButton>
+          </div>
+        </footer>
+      </Teleport>
     </div>
   </NSpin>
 </template>

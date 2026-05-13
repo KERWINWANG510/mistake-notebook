@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { NButton, NCard, NFormItem, NImage, NInput, NSelect, NSpace, NSpin, useMessage } from "naive-ui";
-import FormattedAnalysis from "../components/FormattedAnalysis.vue";
+import AnalysisField from "../components/AnalysisField.vue";
 import type { Grade, Mistake, Subject } from "../api/client";
 import {
   fetchGrades,
@@ -156,7 +156,7 @@ async function save() {
 
 <template>
   <NSpin :show="loading">
-    <div v-if="row" class="mistake-edit page-root">
+    <div v-if="row" class="mistake-edit page-root page-root--fixed-actions">
       <header class="page-header mistake-edit__header">
         <h1 class="page-header__title">编辑错题</h1>
         <p class="page-header__desc">修改分类、题干或解答内容；保存后返回详情页查看。</p>
@@ -239,9 +239,10 @@ async function save() {
             </NFormItem>
 
             <NFormItem label="解题思路" :show-feedback="false" class="mistake-edit__item" label-placement="top">
-              <div class="formatted-analysis--panel formatted-analysis--panel--fill">
-                <FormattedAnalysis :text="analysis" empty-text="暂无解题思路，可根据题干重新生成" />
-              </div>
+              <AnalysisField
+                v-model="analysis"
+                empty-text="暂无解题思路，可根据题干重新生成"
+              />
             </NFormItem>
 
             <NFormItem label="答案" :show-feedback="false" class="mistake-edit__item" label-placement="top">
@@ -253,16 +254,20 @@ async function save() {
                 :autosize="{ minRows: 2, maxRows: 10 }"
               />
             </NFormItem>
-
-            <footer class="app-actions app-actions--bar">
-              <NButton size="small" @click="router.push(`/mistakes/${id}`)">取消</NButton>
-              <NButton type="primary" size="small" :loading="saving" :disabled="solvingStem" @click="save">
-                保存修改
-              </NButton>
-            </footer>
           </NSpace>
         </NSpin>
       </NCard>
+
+      <Teleport to="body">
+        <footer class="app-actions app-actions--bar app-actions--fixed">
+          <div class="app-actions--fixed-inner">
+            <NButton size="small" @click="router.push(`/mistakes/${id}`)">取消</NButton>
+            <NButton type="primary" size="small" :loading="saving" :disabled="solvingStem" @click="save">
+              保存修改
+            </NButton>
+          </div>
+        </footer>
+      </Teleport>
     </div>
   </NSpin>
 </template>
