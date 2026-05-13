@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { NButton, NCard, NFormItem, NImage, NInput, NSelect, NSpace, NSpin, useMessage } from "naive-ui";
+import { NButton, NCard, NFormItem, NImage, NInput, NSelect, NSpace, NSwitch, NSpin, useMessage } from "naive-ui";
 import AnalysisField from "../components/AnalysisField.vue";
 import type { Grade, Mistake, Subject } from "../api/client";
 import {
@@ -32,6 +32,7 @@ const analysis = ref("");
 const answer = ref("");
 const subjectId = ref<string | null>(null);
 const gradeLevelId = ref<string | null>(null);
+const isMastered = ref(false);
 
 const imageObjectUrl = ref<string | null>(null);
 const imageInputRef = ref<HTMLInputElement | null>(null);
@@ -62,6 +63,7 @@ async function load() {
     answer.value = m.answer;
     subjectId.value = m.subject_id;
     gradeLevelId.value = m.grade_level_id;
+    isMastered.value = m.is_mastered;
     subjects.value = ss;
     grades.value = gs;
     await loadImageBlob();
@@ -143,6 +145,7 @@ async function save() {
       stem: stem.value,
       analysis: analysis.value,
       answer: answer.value,
+      is_mastered: isMastered.value,
     });
     message.success("已保存");
     router.push(`/mistakes/${id.value}`);
@@ -216,6 +219,13 @@ async function save() {
                 />
               </NFormItem>
             </div>
+
+            <NFormItem label="掌握状态" :show-feedback="false" class="mistake-edit__item" label-placement="top">
+              <NSwitch v-model:value="isMastered">
+                <template #checked>已掌握</template>
+                <template #unchecked>未掌握</template>
+              </NSwitch>
+            </NFormItem>
 
             <NFormItem label="题干" :show-feedback="false" class="mistake-edit__item" label-placement="top">
               <NSpace vertical :size="8" style="width: 100%">

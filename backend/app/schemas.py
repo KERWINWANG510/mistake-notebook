@@ -101,6 +101,7 @@ class MistakeOut(BaseModel):
     analysis: str
     answer: str
     image_path: str | None
+    is_mastered: bool = False
     created_at: datetime
     updated_at: datetime
     subject_name: str | None = None
@@ -123,6 +124,7 @@ class MistakeUpdate(BaseModel):
     stem: str | None = None
     analysis: str | None = None
     answer: str | None = None
+    is_mastered: bool | None = None
 
 
 class SubjectMistakeSummary(BaseModel):

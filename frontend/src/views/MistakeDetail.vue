@@ -4,7 +4,7 @@ import { useRoute, useRouter } from "vue-router";
 import { NButton, NCard, NImage, NSpace, NSpin, NTag, useMessage } from "naive-ui";
 import FormattedAnalysis from "../components/FormattedAnalysis.vue";
 import type { Mistake } from "../api/client";
-import { fetchMistake, fetchMistakeImageObjectUrl } from "../api/client";
+import { fetchMistake, fetchMistakeImageObjectUrl, updateMistake } from "../api/client";
 
 const route = useRoute();
 const router = useRouter();
@@ -14,6 +14,7 @@ const id = computed(() => route.params.id as string);
 const loading = ref(true);
 const row = ref<Mistake | null>(null);
 const imageObjectUrl = ref<string | null>(null);
+const marking = ref(false);
 
 async function loadImageBlob() {
   if (imageObjectUrl.value) {
@@ -56,6 +57,18 @@ function backToList() {
   }
   router.push("/mistakes");
 }
+
+async function markMastered() {
+  marking.value = true;
+  try {
+    row.value = await updateMistake(id.value, { is_mastered: true });
+    message.success("已标记为已掌握");
+  } catch (e) {
+    message.error((e as Error).message);
+  } finally {
+    marking.value = false;
+  }
+}
 </script>
 
 <template>
@@ -84,6 +97,8 @@ function backToList() {
             <NSpace wrap :size="8">
               <NTag size="small" type="info">{{ row.subject_name ?? "—" }}</NTag>
               <NTag size="small">{{ row.grade_name ?? "—" }}</NTag>
+              <NTag v-if="row.is_mastered" size="small" type="success">已掌握</NTag>
+              <NTag v-else size="small">未掌握</NTag>
             </NSpace>
           </section>
 
@@ -109,6 +124,16 @@ function backToList() {
       <Teleport to="body">
         <footer class="app-actions app-actions--bar app-actions--fixed">
           <div class="app-actions--fixed-inner">
+            <NButton
+              v-if="!row.is_mastered"
+              size="small"
+              type="success"
+              secondary
+              :loading="marking"
+              @click="markMastered"
+            >
+              标记为已掌握
+            </NButton>
             <NButton size="small" type="primary" @click="router.push({ path: `/mistakes/${id}/practice`, query: route.query })">
               举一反三
             </NButton>

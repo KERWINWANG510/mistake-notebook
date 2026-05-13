@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { NButton, NEllipsis, NPopconfirm, NSelect, NSpin, useMessage } from "naive-ui";
+import { NButton, NEllipsis, NPopconfirm, NSelect, NSpin, NTag, useMessage } from "naive-ui";
 import type { Grade, Mistake, SubjectMistakeSummary } from "../api/client";
 import { deleteMistake, fetchGrades, fetchMistakes, fetchSubjectMistakeSummary } from "../api/client";
 import { useAuthStore } from "../stores/auth";
@@ -18,6 +18,7 @@ const message = useMessage();
 const auth = useAuthStore();
 
 type ViewMode = "subjects" | "mistakes";
+type MasteryFilter = "unmastered" | "mastered" | "all";
 
 const loading = ref(true);
 const mistakesLoading = ref(false);
@@ -28,6 +29,12 @@ const subjectSummaries = ref<SubjectMistakeSummary[]>([]);
 const mistakes = ref<Mistake[]>([]);
 const viewMode = ref<ViewMode>("subjects");
 const activeSubject = ref<SubjectMistakeSummary | null>(null);
+const masteryFilter = ref<MasteryFilter>("unmastered");
+const masteryOptions = [
+  { label: "未掌握", value: "unmastered" as const },
+  { label: "已掌握", value: "mastered" as const },
+  { label: "全部", value: "all" as const },
+];
 let initializing = true;
 
 function hubQueryFromState(): Record<string, string> {
@@ -150,6 +157,7 @@ async function loadMistakes() {
     mistakes.value = await fetchMistakes({
       grade_level_id: selectedGradeId.value,
       subject_id: activeSubject.value.subject_id,
+      mastery: masteryFilter.value,
     });
   } catch (e) {
     message.error((e as Error).message);
@@ -199,6 +207,11 @@ watch(selectedGradeId, async () => {
   }
   syncRouteQuery();
   await loadSubjectSummaries();
+});
+
+watch(masteryFilter, () => {
+  if (initializing || viewMode.value !== "mistakes" || !activeSubject.value) return;
+  void loadMistakes();
 });
 
 function openSubject(summary: SubjectMistakeSummary) {
@@ -273,6 +286,14 @@ function formatDate(iso: string) {
         </div>
         <div class="mistake-hub__header-actions">
           <NSelect
+            v-if="viewMode === 'mistakes'"
+            v-model:value="masteryFilter"
+            class="mistake-hub__mastery-select"
+            size="small"
+            :options="masteryOptions"
+            placeholder="是否掌握"
+          />
+          <NSelect
             v-model:value="selectedGradeId"
             class="mistake-hub__grade-select"
             size="small"
@@ -336,6 +357,7 @@ function formatDate(iso: string) {
             v-for="m in mistakes"
             :key="m.id"
             class="mistake-tile"
+            :class="{ 'mistake-tile--mastered': m.is_mastered }"
             role="button"
             tabindex="0"
             @click="router.push({ path: `/mistakes/${m.id}`, query: route.query })"
@@ -343,7 +365,17 @@ function formatDate(iso: string) {
           >
             <div class="mistake-tile__top">
               <span class="mistake-tile__date">{{ formatDate(m.created_at) }}</span>
-              <span v-if="m.image_path" class="mistake-tile__has-img">含配图</span>
+              <div class="mistake-tile__badges">
+                <NTag
+                  size="small"
+                  :type="m.is_mastered ? 'success' : 'warning'"
+                  :bordered="false"
+                  class="mistake-tile__mastery"
+                >
+                  {{ m.is_mastered ? "已掌握" : "未掌握" }}
+                </NTag>
+                <span v-if="m.image_path" class="mistake-tile__has-img">含配图</span>
+              </div>
             </div>
             <NEllipsis :line-clamp="4" class="mistake-tile__stem">{{ m.stem }}</NEllipsis>
             <div class="mistake-tile__actions app-actions app-actions--bar" @click.stop>
@@ -358,7 +390,7 @@ function formatDate(iso: string) {
           </article>
         </div>
         <div v-else-if="!mistakesLoading" class="mistake-hub__empty">
-          <p class="mistake-hub__empty-title">该科目下暂无错题</p>
+          <p class="mistake-hub__empty-title">当前筛选条件下暂无错题</p>
         </div>
       </NSpin>
     </section>
@@ -450,6 +482,10 @@ function formatDate(iso: string) {
 }
 
 .mistake-hub__grade-select {
+  width: 108px;
+}
+
+.mistake-hub__mastery-select {
   width: 108px;
 }
 
@@ -593,6 +629,18 @@ function formatDate(iso: string) {
   gap: 8px;
 }
 
+.mistake-tile__badges {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.mistake-tile--mastered {
+  border-color: rgba(34, 197, 94, 0.28);
+  background: linear-gradient(180deg, rgba(240, 253, 244, 0.92), rgba(255, 255, 255, 0.88));
+}
+
 .mistake-tile__date {
   font-size: 12px;
   color: var(--app-text-subtle);
@@ -687,6 +735,13 @@ function formatDate(iso: string) {
   }
 
   .mistake-hub__grade-select {
+    flex: 1 1 auto;
+    width: auto;
+    min-width: 0;
+    max-width: 108px;
+  }
+
+  .mistake-hub__mastery-select {
     flex: 1 1 auto;
     width: auto;
     min-width: 0;

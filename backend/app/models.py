@@ -89,6 +89,9 @@ class Mistake(Base):
     analysis: Mapped[str] = mapped_column(Text, default="", nullable=False, comment="解题思路")
     answer: Mapped[str] = mapped_column(Text, default="", nullable=False, comment="最终答案")
     image_path: Mapped[str | None] = mapped_column(String(512), nullable=True, comment="原始图片相对 uploads 的路径")
+    is_mastered: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False, comment="是否已掌握"
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False

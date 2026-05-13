@@ -39,6 +39,7 @@ export type Mistake = {
   analysis: string;
   answer: string;
   image_path: string | null;
+  is_mastered: boolean;
   created_at: string;
   updated_at: string;
   subject_name?: string | null;
@@ -133,7 +134,11 @@ export async function fetchGrades() {
   return data;
 }
 
-export async function fetchMistakes(params?: { subject_id?: string; grade_level_id?: string }) {
+export async function fetchMistakes(params?: {
+  subject_id?: string;
+  grade_level_id?: string;
+  mastery?: "mastered" | "unmastered" | "all";
+}) {
   const { data } = await http.get<Mistake[]>("/api/mistakes", { params });
   return data;
 }
@@ -225,6 +230,7 @@ export async function updateMistake(
     stem: string;
     analysis: string;
     answer: string;
+    is_mastered: boolean;
   }>,
 ) {
   const { data } = await http.patch<Mistake>(`/api/mistakes/${id}`, payload);

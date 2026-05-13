@@ -1,6 +1,8 @@
 import uuid
 from pathlib import Path
 
+from typing import Literal
+
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy import func, select
@@ -25,6 +27,7 @@ def _mistake_out(m: Mistake) -> MistakeOut:
         analysis=m.analysis,
         answer=m.answer,
         image_path=m.image_path,
+        is_mastered=m.is_mastered,
         created_at=m.created_at,
         updated_at=m.updated_at,
         subject_name=m.subject.name if m.subject else None,
@@ -46,6 +49,7 @@ async def list_mistakes(
     db: AsyncSession = Depends(get_db),
     subject_id: str | None = None,
     grade_level_id: str | None = None,
+    mastery: Literal["mastered", "unmastered", "all"] = "unmastered",
 ) -> list[MistakeOut]:
     q = (
         select(Mistake)
@@ -57,6 +61,10 @@ async def list_mistakes(
         q = q.where(Mistake.subject_id == subject_id)
     if grade_level_id:
         q = q.where(Mistake.grade_level_id == grade_level_id)
+    if mastery == "mastered":
+        q = q.where(Mistake.is_mastered.is_(True))
+    elif mastery == "unmastered":
+        q = q.where(Mistake.is_mastered.is_(False))
     result = await db.execute(q)
     rows = result.unique().scalars().all()
     return [_mistake_out(m) for m in rows]
@@ -78,7 +86,11 @@ async def subject_mistake_summary(
             func.count(Mistake.id).label("mistake_count"),
         )
         .join(Subject, Mistake.subject_id == Subject.id)
-        .where(Mistake.user_id == user.id, Mistake.grade_level_id == grade_level_id)
+        .where(
+            Mistake.user_id == user.id,
+            Mistake.grade_level_id == grade_level_id,
+            Mistake.is_mastered.is_(False),
+        )
         .group_by(Mistake.subject_id, Subject.name, Subject.code)
         .order_by(func.count(Mistake.id).desc(), Subject.name.asc())
     )
@@ -230,6 +242,8 @@ async def update_mistake(
         m.analysis = body.analysis
     if body.answer is not None:
         m.answer = body.answer
+    if body.is_mastered is not None:
+        m.is_mastered = body.is_mastered
     await db.commit()
     q = (
         select(Mistake)

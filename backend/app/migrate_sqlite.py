@@ -13,6 +13,10 @@ def apply_sqlite_migrations(sync_conn) -> None:
         c = cols(t)
         if "user_id" not in c:
             sync_conn.execute(text("ALTER TABLE mistakes ADD COLUMN user_id VARCHAR(36)"))
+        if "is_mastered" not in c:
+            sync_conn.execute(
+                text("ALTER TABLE mistakes ADD COLUMN is_mastered BOOLEAN NOT NULL DEFAULT 0")
+            )
 
     t = "ai_provider_configs"
     if t in _tables(sync_conn):
