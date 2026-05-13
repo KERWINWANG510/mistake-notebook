@@ -99,6 +99,21 @@ export type SolveSuggestResult = {
   suggested_grade_level: number | null;
 };
 
+export type PracticeDifficulty = "easy" | "medium" | "hard" | "challenge";
+
+export type PracticeGenerateResult = {
+  question_stem: string;
+  reference_answer: string;
+  reference_analysis: string;
+};
+
+export type PracticeCheckResult = {
+  verdict: "correct" | "partial" | "wrong" | string;
+  feedback: string;
+  standard_answer: string;
+  explanation: string;
+};
+
 export async function fetchSubjects() {
   const { data } = await http.get<Subject[]>("/api/subjects");
   return data;
@@ -153,6 +168,33 @@ export async function analyzeImage(
 
 export async function solveFromStem(stem: string) {
   const { data } = await http.post<SolveSuggestResult>("/api/analyze/solve-stem", { stem });
+  return data;
+}
+
+export async function generatePractice(mistakeId: string, difficulty: PracticeDifficulty) {
+  const { data } = await http.post<PracticeGenerateResult>("/api/practice/generate", {
+    mistake_id: mistakeId,
+    difficulty,
+  });
+  return data;
+}
+
+export async function checkPractice(payload: {
+  mistakeId: string;
+  questionStem: string;
+  referenceAnswer: string;
+  referenceAnalysis: string;
+  userAnswer: string;
+  image?: File | null;
+}) {
+  const fd = new FormData();
+  fd.append("mistake_id", payload.mistakeId);
+  fd.append("question_stem", payload.questionStem);
+  fd.append("reference_answer", payload.referenceAnswer);
+  fd.append("reference_analysis", payload.referenceAnalysis);
+  fd.append("user_answer", payload.userAnswer);
+  if (payload.image) fd.append("file", payload.image);
+  const { data } = await http.post<PracticeCheckResult>("/api/practice/check", fd);
   return data;
 }
 

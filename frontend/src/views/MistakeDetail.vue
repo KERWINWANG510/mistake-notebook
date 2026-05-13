@@ -109,6 +109,9 @@ function backToList() {
       <Teleport to="body">
         <footer class="app-actions app-actions--bar app-actions--fixed">
           <div class="app-actions--fixed-inner">
+            <NButton size="small" type="primary" @click="router.push({ path: `/mistakes/${id}/practice`, query: route.query })">
+              举一反三
+            </NButton>
             <NButton size="small" @click="backToList">返回列表</NButton>
             <NButton size="small" type="primary" secondary @click="router.push(`/mistakes/${id}/edit`)">编辑</NButton>
           </div>

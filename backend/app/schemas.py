@@ -246,3 +246,24 @@ class OcrStemResult(BaseModel):
 
 class SolveFromStemBody(BaseModel):
     stem: str = Field(..., min_length=1, max_length=20000)
+
+
+PracticeDifficulty = Literal["easy", "medium", "hard", "challenge"]
+
+
+class PracticeGenerateBody(BaseModel):
+    mistake_id: str = Field(..., min_length=1, max_length=64)
+    difficulty: PracticeDifficulty
+
+
+class PracticeGenerateResult(BaseModel):
+    question_stem: str
+    reference_answer: str
+    reference_analysis: str
+
+
+class PracticeCheckResult(BaseModel):
+    verdict: str
+    feedback: str
+    standard_answer: str
+    explanation: str

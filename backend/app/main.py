@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import get_settings
 from app.database import AsyncSessionLocal, Base, engine
 from app.migrate_sqlite import apply_sqlite_migrations
-from app.routers import ai, analyze, auth, grades, mistakes, subjects
+from app.routers import ai, analyze, auth, grades, mistakes, practice, subjects
 from app.seed import (
     backfill_mistake_user_ids,
     backfill_user_profiles,
@@ -54,6 +54,7 @@ app.include_router(grades.router)
 app.include_router(mistakes.router)
 app.include_router(ai.router)
 app.include_router(analyze.router)
+app.include_router(practice.router)
 
 
 @app.get("/api/health")

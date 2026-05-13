@@ -22,6 +22,11 @@ const router = createRouter({
       component: () => import("../views/MistakeNew.vue"),
     },
     {
+      path: "/mistakes/:id/practice",
+      name: "mistake-practice",
+      component: () => import("../views/MistakePractice.vue"),
+    },
+    {
       path: "/mistakes/:id/edit",
       name: "mistake-edit",
       component: () => import("../views/MistakeEdit.vue"),
