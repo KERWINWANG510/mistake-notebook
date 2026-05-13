@@ -1,0 +1,21 @@
+.cursor/
+.env
+.env.*
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Node / 前端
+node_modules/
+dist/
+*.local
+
+# 本地数据
+backend/data/
+*.db

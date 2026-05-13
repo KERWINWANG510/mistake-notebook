@@ -1,0 +1,221 @@
+import uuid
+from pathlib import Path
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi.responses import FileResponse
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
+
+from app.config import get_settings
+from app.database import get_db
+from app.models import GradeLevel, Mistake, Subject, User
+from app.routers.deps import get_current_user
+from app.schemas import MistakeOut, MistakeUpdate
+
+router = APIRouter(prefix="/api/mistakes", tags=["mistakes"])
+
+
+def _mistake_out(m: Mistake) -> MistakeOut:
+    return MistakeOut(
+        id=m.id,
+        subject_id=m.subject_id,
+        grade_level_id=m.grade_level_id,
+        stem=m.stem,
+        analysis=m.analysis,
+        answer=m.answer,
+        image_path=m.image_path,
+        created_at=m.created_at,
+        updated_at=m.updated_at,
+        subject_name=m.subject.name if m.subject else None,
+        grade_name=m.grade.name if m.grade else None,
+    )
+
+
+def _require_owner(m: Mistake | None, user: User) -> Mistake:
+    if not m:
+        raise HTTPException(status_code=404, detail="错题不存在")
+    if m.user_id != user.id:
+        raise HTTPException(status_code=404, detail="错题不存在")
+    return m
+
+
+@router.get("", response_model=list[MistakeOut])
+async def list_mistakes(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    subject_id: str | None = None,
+    grade_level_id: str | None = None,
+) -> list[MistakeOut]:
+    q = (
+        select(Mistake)
+        .options(joinedload(Mistake.subject), joinedload(Mistake.grade))
+        .where(Mistake.user_id == user.id)
+        .order_by(Mistake.created_at.desc())
+    )
+    if subject_id:
+        q = q.where(Mistake.subject_id == subject_id)
+    if grade_level_id:
+        q = q.where(Mistake.grade_level_id == grade_level_id)
+    result = await db.execute(q)
+    rows = result.unique().scalars().all()
+    return [_mistake_out(m) for m in rows]
+
+
+@router.get("/{mistake_id}/image")
+async def get_mistake_image(
+    mistake_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> FileResponse:
+    m = _require_owner(await db.get(Mistake, mistake_id), user)
+    if not m.image_path:
+        raise HTTPException(status_code=404, detail="该错题没有图片")
+    path = get_settings().upload_dir / m.image_path
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="图片文件不存在")
+    return FileResponse(path)
+
+
+@router.post("/{mistake_id}/image", response_model=MistakeOut)
+async def replace_mistake_image(
+    mistake_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    image: UploadFile = File(...),
+) -> MistakeOut:
+    m = _require_owner(await db.get(Mistake, mistake_id), user)
+    raw = await image.read()
+    if len(raw) > 15 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="图片过大")
+    ext = Path(image.filename or "").suffix.lower() or ".jpg"
+    if ext not in (".jpg", ".jpeg", ".png", ".webp"):
+        ext = ".jpg"
+    fname = f"{mistake_id}{ext}"
+    dest = get_settings().upload_dir / fname
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if m.image_path and m.image_path != fname:
+        old = get_settings().upload_dir / m.image_path
+        if old.is_file():
+            old.unlink(missing_ok=True)
+    dest.write_bytes(raw)
+    m.image_path = fname
+    await db.commit()
+    q = (
+        select(Mistake)
+        .options(joinedload(Mistake.subject), joinedload(Mistake.grade))
+        .where(Mistake.id == mistake_id)
+    )
+    result = await db.execute(q)
+    m2 = result.unique().scalar_one()
+    return _mistake_out(m2)
+
+
+@router.get("/{mistake_id}", response_model=MistakeOut)
+async def get_mistake(mistake_id: str, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)) -> MistakeOut:
+    q = (
+        select(Mistake)
+        .options(joinedload(Mistake.subject), joinedload(Mistake.grade))
+        .where(Mistake.id == mistake_id)
+    )
+    result = await db.execute(q)
+    m = result.unique().scalar_one_or_none()
+    return _mistake_out(_require_owner(m, user))
+
+
+@router.post("", response_model=MistakeOut)
+async def create_mistake(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    subject_id: str = Form(...),
+    grade_level_id: str = Form(...),
+    stem: str = Form(...),
+    analysis: str = Form(""),
+    answer: str = Form(""),
+    image: UploadFile | None = File(None),
+) -> MistakeOut:
+    if not await db.get(Subject, subject_id):
+        raise HTTPException(status_code=400, detail="科目不存在")
+    if not await db.get(GradeLevel, grade_level_id):
+        raise HTTPException(status_code=400, detail="年级不存在")
+
+    mid = str(uuid.uuid4())
+    image_rel: str | None = None
+    if image and image.filename:
+        raw = await image.read()
+        if len(raw) > 15 * 1024 * 1024:
+            raise HTTPException(status_code=400, detail="图片过大")
+        ext = Path(image.filename).suffix.lower() or ".jpg"
+        if ext not in (".jpg", ".jpeg", ".png", ".webp"):
+            ext = ".jpg"
+        fname = f"{mid}{ext}"
+        dest = get_settings().upload_dir / fname
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(raw)
+        image_rel = fname
+
+    row = Mistake(
+        id=mid,
+        user_id=user.id,
+        subject_id=subject_id,
+        grade_level_id=grade_level_id,
+        stem=stem,
+        analysis=analysis or "",
+        answer=answer or "",
+        image_path=image_rel,
+    )
+    db.add(row)
+    await db.commit()
+    q = (
+        select(Mistake)
+        .options(joinedload(Mistake.subject), joinedload(Mistake.grade))
+        .where(Mistake.id == mid)
+    )
+    result = await db.execute(q)
+    m = result.unique().scalar_one()
+    return _mistake_out(m)
+
+
+@router.patch("/{mistake_id}", response_model=MistakeOut)
+async def update_mistake(
+    mistake_id: str,
+    body: MistakeUpdate,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> MistakeOut:
+    m = _require_owner(await db.get(Mistake, mistake_id), user)
+    if body.subject_id is not None:
+        if not await db.get(Subject, body.subject_id):
+            raise HTTPException(status_code=400, detail="科目不存在")
+        m.subject_id = body.subject_id
+    if body.grade_level_id is not None:
+        if not await db.get(GradeLevel, body.grade_level_id):
+            raise HTTPException(status_code=400, detail="年级不存在")
+        m.grade_level_id = body.grade_level_id
+    if body.stem is not None:
+        m.stem = body.stem
+    if body.analysis is not None:
+        m.analysis = body.analysis
+    if body.answer is not None:
+        m.answer = body.answer
+    await db.commit()
+    q = (
+        select(Mistake)
+        .options(joinedload(Mistake.subject), joinedload(Mistake.grade))
+        .where(Mistake.id == mistake_id)
+    )
+    result = await db.execute(q)
+    m2 = result.unique().scalar_one()
+    return _mistake_out(m2)
+
+
+@router.delete("/{mistake_id}")
+async def delete_mistake(mistake_id: str, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)) -> dict[str, str]:
+    m = _require_owner(await db.get(Mistake, mistake_id), user)
+    if m.image_path:
+        p = get_settings().upload_dir / m.image_path
+        if p.is_file():
+            p.unlink(missing_ok=True)
+    await db.delete(m)
+    await db.commit()
+    return {"status": "ok"}
