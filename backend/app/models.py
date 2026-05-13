@@ -54,13 +54,13 @@ class Subject(Base):
 
 
 class GradeLevel(Base):
-    """年级：一至九年级。"""
+    """年级：一至九年级与高一至高三（均为内置）。"""
 
     __tablename__ = "grade_levels"
     __table_args__ = (UniqueConstraint("level", name="uq_grade_level"),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
-    level: Mapped[int] = mapped_column(Integer, nullable=False, comment="年级数字 1-9")
+    level: Mapped[int] = mapped_column(Integer, nullable=False, comment="年级数字 1-12（10-12 为高一至高三）")
     name: Mapped[str] = mapped_column(String(32), nullable=False, comment="展示名称，如「一年级」")
     is_builtin: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, comment="是否内置")
     sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False, comment="排序")

@@ -85,7 +85,7 @@ function logout() {
       <NDialogProvider>
         <RouterView v-if="route.path === '/login'" />
         <template v-else>
-          <NLayout style="min-height: 100vh; background: transparent">
+          <NLayout class="app-shell" style="background: transparent">
             <NLayoutHeader
               class="app-header"
               bordered
@@ -122,7 +122,7 @@ function logout() {
                 </NSpace>
               </div>
             </NLayoutHeader>
-            <NLayoutContent class="app-content" native-scrollbar>
+            <NLayoutContent class="app-content" :native-scrollbar="false">
               <RouterView :key="route.fullPath" />
             </NLayoutContent>
           </NLayout>

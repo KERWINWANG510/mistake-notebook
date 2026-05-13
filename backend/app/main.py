@@ -12,6 +12,7 @@ from app.seed import (
     backfill_mistake_user_ids,
     backfill_user_profiles,
     ensure_admin_user,
+    ensure_builtin_grades,
     ensure_missing_presets,
     run_seed,
 )
@@ -30,6 +31,7 @@ async def lifespan(app: FastAPI):
     async with AsyncSessionLocal() as session:
         await run_seed(session)
         await ensure_missing_presets(session)
+        await ensure_builtin_grades(session)
         await ensure_admin_user(session)
         await backfill_user_profiles(session)
         await backfill_mistake_user_ids(session)

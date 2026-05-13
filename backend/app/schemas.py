@@ -32,6 +32,15 @@ class UserCreateBody(BaseModel):
     enrollment_year: int = Field(..., ge=1980, le=2050)
 
 
+class UserUpdateBody(BaseModel):
+    username: str | None = Field(None, min_length=2, max_length=64)
+    password: str | None = Field(None, min_length=4, max_length=128)
+    full_name: str | None = Field(None, min_length=1, max_length=64)
+    education_stage: EducationStageCode | None = None
+    enrollment_year: int | None = Field(None, ge=1980, le=2050)
+    is_admin: bool | None = None
+
+
 class EducationStageOut(BaseModel):
     code: str
     name: str
@@ -114,6 +123,13 @@ class MistakeUpdate(BaseModel):
     stem: str | None = None
     analysis: str | None = None
     answer: str | None = None
+
+
+class SubjectMistakeSummary(BaseModel):
+    subject_id: str
+    subject_name: str
+    subject_code: str | None = None
+    mistake_count: int
 
 
 class AiPresetOut(BaseModel):
@@ -212,7 +228,7 @@ class AnalyzeResult(BaseModel):
     analysis: str
     answer: str
     suggested_subject_code: str | None = None
-    suggested_grade_level: int | None = Field(None, ge=1, le=9)
+    suggested_grade_level: int | None = Field(None, ge=1, le=12)
 
 
 class SolveSuggestResult(BaseModel):
@@ -221,7 +237,7 @@ class SolveSuggestResult(BaseModel):
     analysis: str = ""
     answer: str = ""
     suggested_subject_code: str | None = None
-    suggested_grade_level: int | None = Field(None, ge=1, le=9)
+    suggested_grade_level: int | None = Field(None, ge=1, le=12)
 
 
 class OcrStemResult(BaseModel):

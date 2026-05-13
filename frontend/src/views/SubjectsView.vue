@@ -89,10 +89,10 @@ async function add() {
       <NSpace vertical style="width: 100%; margin-top: 12px">
         <NInput v-model:value="newName" placeholder="例如：物理、化学（必填）" />
         <NInput v-model:value="newCode" placeholder="内部编码（选填，建议小写英文，如 physics）" />
-        <NSpace justify="end">
+        <div class="app-actions">
           <NButton @click="showAdd = false">取消</NButton>
           <NButton type="primary" @click="add">确定</NButton>
-        </NSpace>
+        </div>
       </NSpace>
     </NModal>
   </NSpace>

@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { NButton, NCard, NImage, NSpace, NSpin, NTag, useMessage } from "naive-ui";
+import FormattedAnalysis from "../components/FormattedAnalysis.vue";
 import type { Mistake } from "../api/client";
 import { fetchMistake, fetchMistakeImageObjectUrl } from "../api/client";
 
@@ -83,7 +84,9 @@ onBeforeUnmount(() => {
 
           <section class="mistake-detail__section">
             <h2 class="mistake-detail__section-title">解题思路</h2>
-            <div class="mistake-detail__text">{{ row.analysis || "—" }}</div>
+            <div class="mistake-detail__text mistake-detail__text--analysis">
+              <FormattedAnalysis :text="row.analysis" />
+            </div>
           </section>
 
           <section class="mistake-detail__section">
@@ -91,7 +94,7 @@ onBeforeUnmount(() => {
             <div class="mistake-detail__text">{{ row.answer || "—" }}</div>
           </section>
 
-          <footer class="mistake-detail__footer">
+          <footer class="app-actions app-actions--bar">
             <NButton size="small" @click="router.push('/mistakes')">返回列表</NButton>
             <NButton size="small" type="primary" secondary @click="router.push(`/mistakes/${id}/edit`)">编辑</NButton>
           </footer>
@@ -141,21 +144,7 @@ onBeforeUnmount(() => {
   color: var(--app-text-muted);
 }
 
-.mistake-detail__footer {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding-top: 4px;
-}
-
-@media (max-width: 768px) {
-  .mistake-detail__footer {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .mistake-detail__footer :deep(.n-button) {
-    width: 100%;
-  }
+.mistake-detail__text--analysis {
+  padding: 12px 14px;
 }
 </style>

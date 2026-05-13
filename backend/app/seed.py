@@ -3,7 +3,7 @@
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import AiProviderPreset, GradeLevel, Subject, User
+from app.models import AiProviderPreset, GradeLevel, Mistake, Subject, User
 from app.services.password import hash_password
 
 
@@ -89,6 +89,22 @@ BUILTIN_SUBJECTS: list[tuple[str, str, int]] = [
 ]
 
 
+def _num_cn(n: int) -> str:
+    m = ["零", "一", "二", "三", "四", "五", "六", "七", "八", "九"]
+    if 1 <= n <= 9:
+        return m[n]
+    return str(n)
+
+
+# (level, 展示名, sort_order)
+BUILTIN_GRADES: list[tuple[int, str, int]] = [
+    *((lv, f"{_num_cn(lv)}年级", lv) for lv in range(1, 10)),
+    (10, "高一", 10),
+    (11, "高二", 11),
+    (12, "高三", 12),
+]
+
+
 async def run_seed(session: AsyncSession) -> None:
     result = await session.execute(select(AiProviderPreset).limit(1))
     if result.scalar_one_or_none() is None:
@@ -104,20 +120,34 @@ async def run_seed(session: AsyncSession) -> None:
 
     result = await session.execute(select(GradeLevel).limit(1))
     if result.scalar_one_or_none() is None:
-        for lv in range(1, 10):
-            session.add(
-                GradeLevel(level=lv, name=f"{_num_cn(lv)}年级", is_builtin=True, sort_order=lv)
-            )
+        for level, name, order in BUILTIN_GRADES:
+            session.add(GradeLevel(level=level, name=name, is_builtin=True, sort_order=order))
         await session.flush()
 
     await session.commit()
 
 
-def _num_cn(n: int) -> str:
-    m = ["零", "一", "二", "三", "四", "五", "六", "七", "八", "九"]
-    if 1 <= n <= 9:
-        return m[n]
-    return str(n)
+async def ensure_builtin_grades(session: AsyncSession) -> None:
+    """确保一至九年级与高一至高三存在，且均为内置；清理无错题引用的自定义年级。"""
+    for level, name, order in BUILTIN_GRADES:
+        result = await session.execute(select(GradeLevel).where(GradeLevel.level == level))
+        row = result.scalar_one_or_none()
+        if row is None:
+            session.add(GradeLevel(level=level, name=name, is_builtin=True, sort_order=order))
+        else:
+            row.name = name
+            row.sort_order = order
+            row.is_builtin = True
+
+    await session.flush()
+
+    custom = await session.execute(select(GradeLevel).where(GradeLevel.is_builtin.is_(False)))
+    for row in custom.scalars().all():
+        used = await session.execute(select(Mistake).where(Mistake.grade_level_id == row.id).limit(1))
+        if used.scalar_one_or_none() is None:
+            session.delete(row)
+
+    await session.commit()
 
 
 async def ensure_missing_presets(session: AsyncSession) -> None:

@@ -7,6 +7,7 @@ import {
   NFormItem,
   NGrid,
   NGridItem,
+  NImage,
   NInput,
   NModal,
   NSelect,
@@ -18,6 +19,7 @@ import {
 } from "naive-ui";
 import type { Subject, Grade } from "../api/client";
 import { analyzeImage, createMistake, fetchGrades, fetchSubjects, solveFromStem } from "../api/client";
+import FormattedAnalysis from "../components/FormattedAnalysis.vue";
 
 const router = useRouter();
 const message = useMessage();
@@ -599,8 +601,16 @@ async function save() {
                   </div>
                 </label>
                 <div v-else class="result-preview result-preview--compact">
-                  <img :src="resultPreviewUrl" alt="已确认的题目区域" />
-                  <NSpace align="center" wrap :size="6" class="result-preview__actions">
+                  <NImage
+                    width="100%"
+                    class="result-preview__image"
+                    :src="resultPreviewUrl"
+                    object-fit="contain"
+                    alt="已确认的题目区域"
+                    :previewed-img-props="{ style: { maxWidth: 'none', maxHeight: 'none' } }"
+                  />
+                  <p class="result-preview__zoom-hint">点击图片可查看原尺寸</p>
+                  <NSpace align="center" justify="end" wrap :size="6" class="result-preview__actions app-actions">
                     <NTag v-if="usedCropRegion" size="small" type="info" :bordered="false">已框选</NTag>
                     <NTag v-else size="small" :bordered="false">整张图</NTag>
                     <NButton size="tiny" tertiary @click="reopenCropModal">重新框选</NButton>
@@ -667,13 +677,9 @@ async function save() {
                   </NFormItem>
 
                   <NFormItem label="解题思路" :show-feedback="false" class="mistake-new__item" label-placement="top">
-                    <NInput
-                      v-model:value="analysis"
-                      type="textarea"
-                      size="small"
-                      placeholder="解题步骤与思路"
-                      :autosize="{ minRows: 4, maxRows: 14 }"
-                    />
+                    <div class="formatted-analysis--panel formatted-analysis--panel--fill">
+                      <FormattedAnalysis :text="analysis" empty-text="识别或根据题干生成后将显示解题思路" />
+                    </div>
                   </NFormItem>
 
                   <NFormItem label="答案" :show-feedback="false" class="mistake-new__item" label-placement="top">
@@ -690,10 +696,9 @@ async function save() {
             </NGridItem>
           </NGrid>
 
-          <footer class="mistake-new__footer">
-            <NButton class="mistake-new__footer-btn" size="small" @click="router.push('/mistakes')">返回</NButton>
+          <footer class="app-actions app-actions--bar">
+            <NButton size="small" @click="router.push('/mistakes')">返回</NButton>
             <NButton
-              class="mistake-new__footer-btn"
               type="primary"
               size="small"
               :loading="saving"
@@ -752,13 +757,11 @@ async function save() {
           </div>
         </div>
       </div>
-      <NSpace justify="space-between" align="center" wrap class="crop-modal__footer">
+      <NSpace justify="end" align="center" wrap :size="6" class="crop-modal__footer app-actions">
         <NButton size="tiny" secondary :disabled="!selRect" @click="clearSelection">清除选区</NButton>
-        <NSpace :size="6" wrap>
-          <NButton size="small" @click="cancelCrop">取消</NButton>
-          <NButton size="small" :disabled="!imgLoaded" @click="confirmCrop(true)">整张图</NButton>
-          <NButton type="primary" size="small" :disabled="!imgLoaded" @click="confirmCrop(false)">确定选区</NButton>
-        </NSpace>
+        <NButton size="small" @click="cancelCrop">取消</NButton>
+        <NButton size="small" :disabled="!imgLoaded" @click="confirmCrop(true)">整张图</NButton>
+        <NButton type="primary" size="small" :disabled="!imgLoaded" @click="confirmCrop(false)">确定选区</NButton>
       </NSpace>
     </NModal>
   </NSpin>
@@ -841,29 +844,9 @@ async function save() {
   font-weight: 500;
 }
 
-.mistake-new__footer {
-  display: flex;
-  justify-content: flex-end;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 16px;
-  padding-top: 14px;
-  border-top: 1px solid var(--app-border);
-}
-
 @media (max-width: 768px) {
   .mistake-new__card :deep(.n-card__content) {
     padding: 12px 14px;
-  }
-
-  .mistake-new__footer {
-    flex-direction: column-reverse;
-    align-items: stretch;
-  }
-
-  .mistake-new__footer-btn {
-    width: 100%;
   }
 
   .mistake-new__section--main {
@@ -891,9 +874,22 @@ async function save() {
   border-radius: 12px;
 }
 
-.result-preview--compact img {
+.result-preview--compact img,
+.result-preview__image :deep(img) {
+  display: block;
+  width: 100%;
   max-height: min(42vh, 320px);
+  object-fit: contain;
   border-radius: 8px;
+  margin: 0 auto;
+  cursor: zoom-in;
+}
+
+.result-preview__zoom-hint {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--app-text-subtle);
+  text-align: center;
 }
 
 .result-preview__actions {
@@ -938,6 +934,7 @@ async function save() {
   text-align: center;
 }
 
+.mistake-new__footer,
 .crop-modal__footer {
   margin-top: 8px;
 }
@@ -1123,5 +1120,9 @@ async function save() {
   object-fit: contain;
   border-radius: 10px;
   margin: 0 auto;
+}
+
+.result-preview__image :deep(img) {
+  cursor: zoom-in;
 }
 </style>

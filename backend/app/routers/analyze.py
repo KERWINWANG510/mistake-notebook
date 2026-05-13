@@ -82,9 +82,30 @@ def _normalize_solve_result(partial: SolveSuggestResult, subjects: list[Subject]
         partial.suggested_subject_code = first
     if partial.suggested_grade_level is not None:
         lv = partial.suggested_grade_level
-        if lv < 1 or lv > 9:
+        if lv < 1 or lv > 12:
             partial.suggested_grade_level = None
     return partial
+
+
+def _solve_system_prompt(subject_lines: str) -> str:
+    return (
+        "你是中小学错题辅导助手。下面给出某道题的题干文字。"
+        "请给出尽可能详细、可跟做的解题过程与最终答案，便于学生复习错题。"
+        "analysis 字段要求：使用简洁 Markdown 排版（保存为纯文本）："
+        "（1）每个大步骤之间空一行；步骤行首用「1. 」「2. 」编号，步骤标题用 **加粗**（如 **1. 审题：**）；"
+        "（2）步骤内分点可用「- 」列表；知识点、易错点等小节用 **【知识点】** **【易错点】** 等加粗标签起头；"
+        "（3）每一步说明「做什么、为什么、得到什么」；"
+        "（4）若有多问，用 **【第 1 问】** 等分段；"
+        "（5）篇幅宜详不宜略，一般不少于 4 步，复杂题可更长。"
+        "answer 字段写最终结论（含单位），与 analysis 一致。"
+        "同时推断科目与年级：科目使用下列编码之一（优先精确匹配）："
+        f"{subject_lines}。"
+        "年级用 1-12 的整数表示：1-9 为一至九年级，10-12 为高一至高三。"
+        "只输出一个 JSON 对象，不要 Markdown 代码块，不要 JSON 以外的说明。字段为："
+        "analysis（解题思路，纯文本，可用换行与 **加粗**）, answer（最终答案）, "
+        "suggested_subject_code（科目编码，必须与列表之一一致，若无法判断则填第一个编码）, "
+        "suggested_grade_level（整数 1-12）。不要重复输出 stem 字段。"
+    )
 
 
 async def _solve_from_stem_text(
@@ -107,19 +128,8 @@ async def _solve_from_stem_text(
         )
 
     subjects, subject_lines = await _subject_code_lines(db)
-    solve_system = (
-        "你是中小学错题辅导助手。下面给出某道题的题干文字。"
-        "请给出清晰的解题思路与最终答案。"
-        "同时推断科目与年级：科目使用下列编码之一（优先精确匹配）："
-        f"{subject_lines}。"
-        "年级用 1-9 的整数表示。"
-        "只输出一个 JSON 对象，不要 Markdown，不要多余说明。字段为："
-        "analysis（解题思路）, answer（最终答案）, "
-        "suggested_subject_code（科目编码，必须与列表之一一致，若无法判断则填第一个编码）, "
-        "suggested_grade_level（整数 1-9）。不要重复输出 stem 字段。"
-    )
     solve_messages = [
-        {"role": "system", "content": solve_system},
+        {"role": "system", "content": _solve_system_prompt(subject_lines)},
         {"role": "user", "content": f"题干如下：\n{stem_text}"},
     ]
 

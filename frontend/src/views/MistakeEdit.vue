@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { NButton, NCard, NFormItem, NImage, NInput, NSelect, NSpace, NSpin, useMessage } from "naive-ui";
+import FormattedAnalysis from "../components/FormattedAnalysis.vue";
 import type { Grade, Mistake, Subject } from "../api/client";
 import {
   fetchGrades,
@@ -238,13 +239,9 @@ async function save() {
             </NFormItem>
 
             <NFormItem label="解题思路" :show-feedback="false" class="mistake-edit__item" label-placement="top">
-              <NInput
-                v-model:value="analysis"
-                type="textarea"
-                size="small"
-                placeholder="解题步骤与思路"
-                :autosize="{ minRows: 4, maxRows: 14 }"
-              />
+              <div class="formatted-analysis--panel formatted-analysis--panel--fill">
+                <FormattedAnalysis :text="analysis" empty-text="暂无解题思路，可根据题干重新生成" />
+              </div>
             </NFormItem>
 
             <NFormItem label="答案" :show-feedback="false" class="mistake-edit__item" label-placement="top">
@@ -257,16 +254,9 @@ async function save() {
               />
             </NFormItem>
 
-            <footer class="mistake-edit__footer">
-              <NButton class="mistake-edit__footer-btn" size="small" @click="router.push(`/mistakes/${id}`)">取消</NButton>
-              <NButton
-                class="mistake-edit__footer-btn"
-                type="primary"
-                size="small"
-                :loading="saving"
-                :disabled="solvingStem"
-                @click="save"
-              >
+            <footer class="app-actions app-actions--bar">
+              <NButton size="small" @click="router.push(`/mistakes/${id}`)">取消</NButton>
+              <NButton type="primary" size="small" :loading="saving" :disabled="solvingStem" @click="save">
                 保存修改
               </NButton>
             </footer>
@@ -364,31 +354,12 @@ async function save() {
   min-width: 0;
 }
 
-.mistake-edit__footer {
-  display: flex;
-  justify-content: flex-end;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 4px;
-  padding-top: 14px;
-  border-top: 1px solid var(--app-border);
-}
-
 @media (max-width: 768px) {
   .mistake-edit__meta {
     flex-direction: column;
   }
 
   .mistake-edit__item--inline {
-    width: 100%;
-  }
-
-  .mistake-edit__footer {
-    flex-direction: column-reverse;
-    align-items: stretch;
-  }
-
-  .mistake-edit__footer-btn {
     width: 100%;
   }
 }

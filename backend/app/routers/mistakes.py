@@ -3,7 +3,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
@@ -11,7 +11,7 @@ from app.config import get_settings
 from app.database import get_db
 from app.models import GradeLevel, Mistake, Subject, User
 from app.routers.deps import get_current_user
-from app.schemas import MistakeOut, MistakeUpdate
+from app.schemas import MistakeOut, MistakeUpdate, SubjectMistakeSummary
 
 router = APIRouter(prefix="/api/mistakes", tags=["mistakes"])
 
@@ -60,6 +60,38 @@ async def list_mistakes(
     result = await db.execute(q)
     rows = result.unique().scalars().all()
     return [_mistake_out(m) for m in rows]
+
+
+@router.get("/summary/by-subject", response_model=list[SubjectMistakeSummary])
+async def subject_mistake_summary(
+    grade_level_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[SubjectMistakeSummary]:
+    if not await db.get(GradeLevel, grade_level_id):
+        raise HTTPException(status_code=400, detail="年级不存在")
+    q = (
+        select(
+            Mistake.subject_id,
+            Subject.name,
+            Subject.code,
+            func.count(Mistake.id).label("mistake_count"),
+        )
+        .join(Subject, Mistake.subject_id == Subject.id)
+        .where(Mistake.user_id == user.id, Mistake.grade_level_id == grade_level_id)
+        .group_by(Mistake.subject_id, Subject.name, Subject.code)
+        .order_by(func.count(Mistake.id).desc(), Subject.name.asc())
+    )
+    result = await db.execute(q)
+    return [
+        SubjectMistakeSummary(
+            subject_id=row.subject_id,
+            subject_name=row.name,
+            subject_code=row.code,
+            mistake_count=row.mistake_count,
+        )
+        for row in result.all()
+    ]
 
 
 @router.get("/{mistake_id}/image")

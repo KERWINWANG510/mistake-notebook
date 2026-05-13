@@ -45,6 +45,13 @@ export type Mistake = {
   grade_name?: string | null;
 };
 
+export type SubjectMistakeSummary = {
+  subject_id: string;
+  subject_name: string;
+  subject_code: string | null;
+  mistake_count: number;
+};
+
 export type AiPreset = {
   id: string;
   display_name: string;
@@ -111,17 +118,15 @@ export async function fetchGrades() {
   return data;
 }
 
-export async function createGrade(payload: { level: number; name: string; sort_order?: number }) {
-  const { data } = await http.post<Grade>("/api/grades", payload);
+export async function fetchMistakes(params?: { subject_id?: string; grade_level_id?: string }) {
+  const { data } = await http.get<Mistake[]>("/api/mistakes", { params });
   return data;
 }
 
-export async function deleteGrade(id: string) {
-  await http.delete(`/api/grades/${id}`);
-}
-
-export async function fetchMistakes(params?: { subject_id?: string; grade_level_id?: string }) {
-  const { data } = await http.get<Mistake[]>("/api/mistakes", { params });
+export async function fetchSubjectMistakeSummary(gradeLevelId: string) {
+  const { data } = await http.get<SubjectMistakeSummary[]>("/api/mistakes/summary/by-subject", {
+    params: { grade_level_id: gradeLevelId },
+  });
   return data;
 }
 
@@ -218,6 +223,26 @@ export async function createUserAccount(payload: {
   enrollment_year: number;
 }) {
   const { data } = await http.post<MeUser>("/api/auth/users", payload);
+  return data;
+}
+
+export async function updateUserAccount(
+  id: string,
+  payload: {
+    username?: string;
+    password?: string;
+    full_name?: string;
+    education_stage?: string;
+    enrollment_year?: number;
+    is_admin?: boolean;
+  },
+) {
+  const { data } = await http.patch<MeUser>(`/api/auth/users/${id}`, payload);
+  return data;
+}
+
+export async function deleteUserAccount(id: string) {
+  const { data } = await http.delete<{ status: string }>(`/api/auth/users/${id}`);
   return data;
 }
 

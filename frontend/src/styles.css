@@ -63,19 +63,39 @@ body {
 }
 
 /* 页面内容区：与顶栏留白 */
+.app-shell {
+  height: 100vh;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.app-shell :deep(.n-layout-scroll-container) {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 .app-content {
-  padding: 20px 20px 32px;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 20px 20px 24px;
   max-width: 1080px;
   margin: 0 auto;
   width: 100%;
   min-width: 0;
   box-sizing: border-box;
   overflow-x: clip;
+  overflow-y: auto;
 }
 
 @media (max-width: 768px) {
   .app-content {
-    padding: 16px 14px 28px;
+    padding: 16px 14px 20px;
   }
 }
 
@@ -314,6 +334,89 @@ body {
   margin-top: 10px;
   padding-top: 10px;
   border-top: 1px solid var(--app-border);
+}
+
+/* 操作按钮区：页面底栏、弹窗底栏等统一右对齐 */
+.app-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.app-actions--bar {
+  margin-top: 12px;
+  padding-top: 14px;
+  border-top: 1px solid var(--app-border);
+}
+
+/* 解题思路排版展示（Markdown 轻量渲染） */
+.formatted-analysis {
+  font-size: 14px;
+  line-height: 1.75;
+  color: #334155;
+  word-break: break-word;
+}
+
+.formatted-analysis p {
+  margin: 0 0 10px;
+}
+
+.formatted-analysis p:last-child {
+  margin-bottom: 0;
+}
+
+.formatted-analysis strong {
+  color: #0f172a;
+  font-weight: 600;
+}
+
+.formatted-analysis .analysis-step {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(79, 70, 229, 0.05);
+  border-left: 3px solid rgba(79, 70, 229, 0.35);
+}
+
+.formatted-analysis .analysis-step strong {
+  color: #4338ca;
+}
+
+.formatted-analysis .analysis-bullet {
+  padding-left: 4px;
+  margin-bottom: 6px;
+}
+
+.formatted-analysis .analysis-label {
+  margin-top: 4px;
+  margin-bottom: 8px;
+}
+
+.formatted-analysis .analysis-label strong {
+  color: #4f46e5;
+}
+
+.formatted-analysis--empty {
+  color: var(--app-text-muted);
+}
+
+.formatted-analysis--panel {
+  margin-top: 8px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--app-border);
+  background: rgba(255, 255, 255, 0.72);
+  max-height: min(48vh, 420px);
+  overflow-y: auto;
+}
+
+.formatted-analysis--panel--fill {
+  margin-top: 0;
+  min-height: 120px;
+  max-height: min(56vh, 480px);
 }
 
 .entity-card__empty {
@@ -585,6 +688,10 @@ body {
   max-width: 100%;
   min-width: 0;
   box-sizing: border-box;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 /* 表格横向滚动容器（移动端） */
