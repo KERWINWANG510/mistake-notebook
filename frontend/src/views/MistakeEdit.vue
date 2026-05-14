@@ -41,6 +41,23 @@ const imageInputRef = ref<HTMLInputElement | null>(null);
 const subjectOptions = computed(() => subjects.value.map((s) => ({ label: s.name, value: s.id })));
 const gradeOptions = computed(() => grades.value.map((g) => ({ label: g.name, value: g.id })));
 
+/** 保存/取消后返回：优先回到进入编辑页时的路径（列表或详情） */
+function pathAfterEdit(): string {
+  const raw = route.query.returnTo;
+  const candidate = Array.isArray(raw) ? raw[0] : raw;
+  if (typeof candidate === "string") {
+    const path = candidate.trim();
+    if (path.startsWith("/mistakes") && !path.startsWith("//")) {
+      return path;
+    }
+  }
+  return `/mistakes/${id.value}`;
+}
+
+function leaveEditPage() {
+  router.push(pathAfterEdit());
+}
+
 async function loadSubjectsForGrade(gradeId: string | null) {
   if (!gradeId) {
     subjects.value = [];
@@ -246,7 +263,7 @@ async function save() {
       knowledge_tags: knowledgeTags.value,
     });
     message.success("已保存");
-    router.push(`/mistakes/${id.value}`);
+    leaveEditPage();
   } catch (e) {
     message.error((e as Error).message);
   } finally {
@@ -383,7 +400,7 @@ async function save() {
       <Teleport to="body">
         <footer class="app-actions app-actions--bar app-actions--fixed">
           <div class="app-actions--fixed-inner">
-            <NButton size="small" @click="router.push(`/mistakes/${id}`)">取消</NButton>
+            <NButton size="small" @click="leaveEditPage">取消</NButton>
             <NButton type="primary" size="small" :loading="saving" :disabled="solvingStem" @click="save">
               保存修改
             </NButton>
