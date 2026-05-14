@@ -443,7 +443,13 @@ function formatDate(iso: string) {
               <NTag v-for="t in m.knowledge_tags" :key="t" size="tiny" :bordered="false">{{ t }}</NTag>
             </div>
             <div class="mistake-tile__actions app-actions app-actions--bar" @click.stop>
-              <NButton size="small" secondary @click="router.push(`/mistakes/${m.id}/edit`)">编辑</NButton>
+              <NButton
+                size="small"
+                secondary
+                @click="router.push({ path: `/mistakes/${m.id}/edit`, query: { returnTo: route.fullPath } })"
+              >
+                编辑
+              </NButton>
               <NPopconfirm positive-text="删除" negative-text="取消" @positive-click="onDelete(m.id)">
                 <template #trigger>
                   <NButton size="small" type="error" secondary>删除</NButton>
@@ -833,14 +839,15 @@ function formatDate(iso: string) {
 
   .mistake-hub__header-top {
     flex-direction: row;
-    align-items: center;
-    flex-wrap: nowrap;
+    align-items: flex-start;
+    flex-wrap: wrap;
     gap: 8px;
   }
 
   .mistake-hub__header-left {
-    flex: 0 0 auto;
+    flex: 1 1 auto;
     min-width: 0;
+    max-width: 100%;
   }
 
   .mistake-hub__title {
@@ -848,23 +855,33 @@ function formatDate(iso: string) {
   }
 
   .mistake-hub__header-actions {
-    flex: 1 1 auto;
+    flex: 1 1 100%;
+    width: 100%;
     min-width: 0;
+    flex-wrap: wrap;
     justify-content: flex-end;
+    gap: 8px;
   }
 
   .mistake-hub__grade-select {
-    flex: 1 1 auto;
-    width: auto;
-    min-width: 0;
-    max-width: 108px;
+    flex: 0 0 auto;
+    width: auto !important;
+    min-width: 108px;
+    max-width: none;
   }
 
   .mistake-hub__mastery-select {
-    flex: 1 1 auto;
-    width: auto;
-    min-width: 0;
-    max-width: 108px;
+    flex: 0 0 auto;
+    width: auto !important;
+    min-width: 100px;
+    max-width: none;
+  }
+
+  .mistake-hub__grade-select :deep(.n-base-selection-label),
+  .mistake-hub__mastery-select :deep(.n-base-selection-label) {
+    overflow: visible;
+    text-overflow: clip;
+    white-space: nowrap;
   }
 
   .mistake-hub__add-btn {
@@ -901,7 +918,8 @@ function formatDate(iso: string) {
   }
 
   .mistake-hub__header--grade-overridden .mistake-hub__grade-select {
-    max-width: 92px;
+    min-width: 100px;
+    max-width: none;
   }
 
   .mistake-hub__header--mistakes .mistake-hub__subtitle {

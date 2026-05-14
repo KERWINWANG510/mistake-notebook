@@ -66,6 +66,8 @@ const previewUrl = ref<string | null>(null);
 const imgRef = ref<HTMLImageElement | null>(null);
 const imgLoaded = ref(false);
 const cropConfirming = ref(false);
+/** 已有确认图后再次打开框选弹窗；取消时不应清空已确认的题目图 */
+const cropReentry = ref(false);
 
 const selRect = ref<{ x: number; y: number; w: number; h: number } | null>(null);
 const dragStart = ref<{ x: number; y: number } | null>(null);
@@ -90,6 +92,16 @@ const gradeLevelId = ref<string | null>(null);
 const knowledgeTags = ref<string[]>([]);
 
 const fileInputRef = ref<HTMLInputElement | null>(null);
+
+const narrow = ref(false);
+function updateNarrow() {
+  narrow.value = window.matchMedia("(max-width: 768px)").matches;
+}
+const gridXGap = computed(() => (narrow.value ? 0 : 16));
+const gridYGap = computed(() => (narrow.value ? 10 : 16));
+const stemFieldMinRows = computed(() => (narrow.value ? 3 : 4));
+const stemFieldMaxRows = computed(() => (narrow.value ? 10 : 14));
+const analysisFieldMinRows = computed(() => (narrow.value ? 4 : 6));
 
 function pickAnotherImage() {
   fileInputRef.value?.click();
@@ -187,6 +199,7 @@ function acceptImageFile(f: File) {
     message.warning("请选择图片文件（如 JPG、PNG、WebP）");
     return;
   }
+  cropReentry.value = false;
   revokePreview();
   revokeResultPreview();
   selRect.value = null;
@@ -509,23 +522,34 @@ async function confirmCrop(useFull: boolean) {
     usedCropRegion.value = true;
   }
   setResultPreviewFromFile(uploadFile.value);
+  cropReentry.value = false;
   showCropModal.value = false;
   await runAnalyze();
 }
 
 function cancelCrop() {
   showCropModal.value = false;
+  selRect.value = null;
+  resetZoom();
+  imgLoaded.value = false;
+  if (cropReentry.value) {
+    cropReentry.value = false;
+    return;
+  }
   resetImageState();
 }
 
 function reopenCropModal() {
   if (!originalFile.value || !previewUrl.value) return;
+  cropReentry.value = true;
   selRect.value = null;
   resetZoom();
   showCropModal.value = true;
 }
 
 onMounted(async () => {
+  updateNarrow();
+  window.addEventListener("resize", updateNarrow);
   try {
     grades.value = await fetchGrades();
   } catch (e) {
@@ -536,6 +560,7 @@ onMounted(async () => {
 });
 
 onBeforeUnmount(() => {
+  window.removeEventListener("resize", updateNarrow);
   analyzeAbortCtrl.value?.abort();
   detachCropListeners();
   revokePreview();
@@ -747,12 +772,13 @@ async function save() {
 
 <template>
   <NSpin :show="loadingMeta">
-    <div class="mistake-new page-root">
+    <div class="mistake-new page-root" :class="{ 'page-root--fixed-actions': narrow }">
       <header class="page-header mistake-new__header">
         <h1 class="page-header__title">录入错题</h1>
-        <p class="page-header__desc">
+        <p class="page-header__desc mistake-new__header-desc">
           上传并框选题目后自动识别；识别过程采用流式输出。题干与解题思路均支持「编辑 / 排版预览」（**加粗**、分段、&lt;u&gt; 下划线等）。可修改题干后重新生成解析与答案。
         </p>
+        <p v-if="narrow" class="mistake-new__header-mobile-tip">上传题目图 → 框选识别 → 核对后保存</p>
       </header>
       <NCard class="surface-card mistake-new__card" size="small" :bordered="false">
         <NSpin :show="analyzeBusy" :description="analyzeSpinDesc">
@@ -765,9 +791,16 @@ async function save() {
             @change="onPickFile"
           />
 
-          <NGrid class="mistake-new__grid" :cols="24" :x-gap="20" :y-gap="16" item-responsive responsive="screen">
+          <NGrid
+            class="mistake-new__grid"
+            :cols="24"
+            :x-gap="gridXGap"
+            :y-gap="gridYGap"
+            item-responsive
+            responsive="screen"
+          >
             <NGridItem class="mistake-new__aside" span="24 l:9">
-              <section class="mistake-new__section">
+              <section class="mistake-new__section mistake-new__panel">
                 <h2 class="mistake-new__section-title">题目图片</h2>
                 <label
                   v-if="!resultPreviewUrl"
@@ -802,21 +835,27 @@ async function save() {
                     :previewed-img-props="{ style: { maxWidth: 'none', maxHeight: 'none' } }"
                   />
                   <p class="result-preview__zoom-hint">点击图片可查看原尺寸；也可拖拽新图片到此处更换</p>
-                  <NSpace align="center" justify="end" wrap :size="6" class="result-preview__actions app-actions">
+                  <div class="result-preview__actions app-actions">
                     <NTag v-if="usedCropRegion" size="small" type="info" :bordered="false">已框选</NTag>
                     <NTag v-else size="small" :bordered="false">整张图</NTag>
                     <NButton size="tiny" tertiary @click="reopenCropModal">重新框选</NButton>
-                    <NButton size="tiny" secondary :loading="analyzing" :disabled="analyzeBusy || !uploadFile" @click="openReanalyzeModal">
+                    <NButton
+                      size="tiny"
+                      secondary
+                      :loading="analyzing"
+                      :disabled="analyzeBusy || !uploadFile"
+                      @click="openReanalyzeModal"
+                    >
                       重新识别
                     </NButton>
                     <NButton size="tiny" quaternary @click="pickAnotherImage">更换图片</NButton>
-                  </NSpace>
+                  </div>
                 </div>
               </section>
 
-              <section class="mistake-new__section">
+              <section class="mistake-new__section mistake-new__panel">
                 <h2 class="mistake-new__section-title">分类信息</h2>
-                <NSpace vertical :size="10" style="width: 100%">
+                <div class="mistake-new__meta-grid">
                   <NFormItem label="年级" :show-feedback="false" class="mistake-new__item" label-placement="top">
                     <NSelect
                       v-model:value="gradeLevelId"
@@ -835,7 +874,12 @@ async function save() {
                       placeholder="请选择科目"
                     />
                   </NFormItem>
-                  <NFormItem label="知识点标签" :show-feedback="false" class="mistake-new__item" label-placement="top">
+                  <NFormItem
+                    label="知识点标签"
+                    :show-feedback="false"
+                    class="mistake-new__item mistake-new__item--full"
+                    label-placement="top"
+                  >
                     <NDynamicTags
                       v-model:value="knowledgeTags"
                       size="small"
@@ -843,20 +887,23 @@ async function save() {
                       placeholder="AI 识别后可编辑，回车添加"
                     />
                   </NFormItem>
-                </NSpace>
+                </div>
               </section>
             </NGridItem>
 
             <NGridItem span="24 l:15">
-              <section class="mistake-new__section mistake-new__section--main">
+              <section class="mistake-new__section mistake-new__section--main mistake-new__panel">
                 <div class="mistake-new__section-head">
                   <h2 class="mistake-new__section-title">题干与解答</h2>
                   <NText v-if="hasRecognized" depth="3" class="mistake-new__section-hint">修改题干后可重新生成</NText>
                 </div>
 
                 <div v-show="analyzing" class="mistake-new__stream-panel">
-                  <NText depth="3" class="mistake-new__stream-tip">
+                  <NText depth="3" class="mistake-new__stream-tip mistake-new__stream-tip--desktop">
                     AI 实时输出（与聊天类似逐字返回；完成后将写入下方题干与解答）
+                  </NText>
+                  <NText depth="3" class="mistake-new__stream-tip mistake-new__stream-tip--mobile">
+                    AI 识别中，完成后自动填入下方
                   </NText>
                   <div class="mistake-new__stream-columns">
                     <div class="mistake-new__stream-col">
@@ -870,14 +917,14 @@ async function save() {
                   </div>
                 </div>
 
-                <NSpace vertical :size="12" style="width: 100%">
+                <NSpace vertical :size="narrow ? 8 : 12" style="width: 100%">
                   <NFormItem label="题干" :show-feedback="false" class="mistake-new__item" label-placement="top">
                     <NSpace vertical :size="8" style="width: 100%">
                       <AnalysisField
                         v-model="stem"
                         variant="stem"
-                        :min-rows="4"
-                        :max-rows="14"
+                        :min-rows="stemFieldMinRows"
+                        :max-rows="stemFieldMaxRows"
                         empty-text="识别结果将显示在此"
                       />
                       <NButton
@@ -889,7 +936,8 @@ async function save() {
                         :disabled="analyzeBusy || !stem.trim()"
                         @click="runSolveFromStem"
                       >
-                        根据题干重新生成解析与答案
+                        <span class="mistake-new__regen-label mistake-new__regen-label--full">根据题干重新生成解析与答案</span>
+                        <span class="mistake-new__regen-label mistake-new__regen-label--short">重新生成解析</span>
                       </NButton>
                     </NSpace>
                   </NFormItem>
@@ -897,6 +945,7 @@ async function save() {
                   <NFormItem label="解题思路" :show-feedback="false" class="mistake-new__item" label-placement="top">
                     <AnalysisField
                       v-model="analysis"
+                      :min-rows="analysisFieldMinRows"
                       empty-text="识别或根据题干生成后将显示解题思路"
                     />
                   </NFormItem>
@@ -907,7 +956,7 @@ async function save() {
                       type="textarea"
                       size="small"
                       placeholder="最终答案"
-                      :autosize="{ minRows: 2, maxRows: 10 }"
+                      :autosize="{ minRows: narrow ? 2 : 2, maxRows: narrow ? 6 : 10 }"
                     />
                   </NFormItem>
                 </NSpace>
@@ -915,17 +964,23 @@ async function save() {
             </NGridItem>
           </NGrid>
 
-          <footer class="app-actions app-actions--bar">
-            <NButton size="small" @click="router.push('/mistakes')">返回</NButton>
-            <NButton
-              type="primary"
-              size="small"
-              :loading="saving"
-              :disabled="analyzeBusy || !uploadFile"
-              @click="save"
-            >
-              保存到错题本
-            </NButton>
+          <footer
+            class="mistake-new__footer app-actions"
+            :class="narrow ? 'mistake-new__footer--dock app-actions--fixed' : 'app-actions--bar'"
+          >
+            <div class="mistake-new__footer-inner app-actions--fixed-inner">
+              <NButton size="small" @click="router.push('/mistakes')">返回</NButton>
+              <NButton
+                type="primary"
+                size="small"
+                :loading="saving"
+                :disabled="analyzeBusy || !uploadFile"
+                @click="save"
+              >
+                <span class="mistake-new__save-label mistake-new__save-label--full">保存到错题本</span>
+                <span class="mistake-new__save-label mistake-new__save-label--short">保存</span>
+              </NButton>
+            </div>
           </footer>
         </NSpin>
       </NCard>
@@ -936,7 +991,7 @@ async function save() {
       preset="card"
       title="框选题目区域"
       class="crop-modal"
-      style="width: min(560px, 94vw)"
+      style="width: min(680px, 96vw)"
       :mask-closable="false"
       @update:show="onCropModalShowUpdate"
     >
@@ -1010,6 +1065,20 @@ async function save() {
 </template>
 
 <style scoped>
+.mistake-new {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.mistake-new__card {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
 .mistake-new__header {
   margin-bottom: 12px;
 }
@@ -1025,10 +1094,39 @@ async function save() {
 
 .mistake-new__card :deep(.n-card__content) {
   padding: 16px 18px;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 .mistake-new__grid {
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.mistake-new__grid :deep(.n-grid),
+.mistake-new__grid :deep(.n-grid-item) {
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.mistake-new__aside,
+.mistake-new__section,
+.mistake-new__section--main {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.mistake-new :deep(.analysis-field),
+.mistake-new :deep(.formatted-analysis--panel),
+.mistake-new :deep(.n-form-item),
+.mistake-new :deep(.n-form-item-blank),
+.mistake-new :deep(.n-input) {
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 .mistake-new__aside {
@@ -1145,14 +1243,272 @@ async function save() {
   width: 100%;
 }
 
+.mistake-new__header-mobile-tip {
+  display: none;
+}
+
+.mistake-new__meta-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+}
+
+.mistake-new__item--full {
+  width: 100%;
+}
+
+.mistake-new__stream-tip--mobile {
+  display: none;
+}
+
+.mistake-new__regen-label--short,
+.mistake-new__save-label--short {
+  display: none;
+}
+
+.mistake-new__footer-inner {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.mistake-new__panel {
+  /* 桌面端不额外包一层卡片 */
+}
+
 @media (max-width: 768px) {
+  .mistake-new__header {
+    margin-bottom: 6px;
+  }
+
+  .mistake-new__header .page-header__title {
+    font-size: 1.08rem;
+    margin-bottom: 2px;
+  }
+
+  .mistake-new__header-desc {
+    display: none;
+  }
+
+  .mistake-new__header-mobile-tip {
+    display: block;
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--app-text-muted, #64748b);
+  }
+
+  .mistake-new__card {
+    background: transparent !important;
+    box-shadow: none !important;
+  }
+
   .mistake-new__card :deep(.n-card__content) {
-    padding: 12px 14px;
+    padding: 0 !important;
+    background: transparent;
+  }
+
+  .mistake-new__panel {
+    padding: 11px 12px;
+    margin-bottom: 10px;
+    border-radius: 14px;
+    background: #fff;
+    border: 1px solid rgba(226, 232, 240, 0.92);
+    box-shadow: 0 2px 10px rgba(15, 23, 42, 0.04);
+  }
+
+  .mistake-new__panel:last-child {
+    margin-bottom: 0;
   }
 
   .mistake-new__section--main {
     padding-left: 0;
     border-left: none;
+  }
+
+  .mistake-new__grid :deep(.n-grid) {
+    width: 100% !important;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+  }
+
+  .mistake-new__grid :deep(.n-grid-item) {
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+  }
+
+  .mistake-new__aside {
+    gap: 0;
+  }
+
+  .mistake-new__section-title {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin-bottom: 8px;
+    font-size: 12px;
+    font-weight: 700;
+    color: #4338ca;
+    letter-spacing: 0.03em;
+  }
+
+  .mistake-new__section-title::before {
+    content: "";
+    width: 3px;
+    height: 13px;
+    border-radius: 999px;
+    background: linear-gradient(180deg, #a5b4fc, #6366f1);
+    flex-shrink: 0;
+  }
+
+  .mistake-new__meta-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px 10px;
+  }
+
+  .mistake-new__meta-grid .mistake-new__item--full {
+    grid-column: 1 / -1;
+  }
+
+  .mistake-new__item :deep(.n-form-item-label) {
+    font-size: 12px;
+    padding-bottom: 2px;
+  }
+
+  .mistake-new__stream-columns {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .mistake-new__stream-panel {
+    margin-bottom: 10px;
+    padding: 8px 10px;
+    border-radius: 10px;
+    background: linear-gradient(135deg, rgba(99, 102, 241, 0.07), rgba(129, 140, 248, 0.04));
+  }
+
+  .mistake-new__stream-tip--desktop {
+    display: none;
+  }
+
+  .mistake-new__stream-tip--mobile {
+    display: block;
+    margin-bottom: 6px;
+    font-size: 11px;
+    line-height: 1.4;
+  }
+
+  .mistake-new__stream-pre {
+    min-height: 52px;
+    max-height: 108px;
+    padding: 6px 8px;
+    font-size: 11px;
+    border-radius: 8px;
+  }
+
+  .mistake-new__section-head {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-bottom: 8px;
+  }
+
+  .mistake-new__section-hint {
+    font-size: 11px;
+    width: auto;
+  }
+
+  .file-picker--compact {
+    min-height: 84px;
+    padding: 12px;
+    border-radius: 12px;
+  }
+
+  .file-picker--compact .file-picker__hint {
+    font-size: 12px;
+  }
+
+  .file-picker--compact .file-picker__sub {
+    font-size: 11px;
+  }
+
+  .result-preview--compact {
+    padding: 6px 8px;
+    border-radius: 12px;
+    background: rgba(248, 250, 252, 0.9);
+  }
+
+  .result-preview--compact img,
+  .result-preview__image :deep(img) {
+    max-height: min(26vh, 180px);
+    border-radius: 10px;
+  }
+
+  .result-preview__zoom-hint {
+    display: none;
+  }
+
+  .result-preview__actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+    justify-content: stretch;
+    margin-top: 8px;
+  }
+
+  .result-preview__actions :deep(.n-tag) {
+    grid-column: 1 / -1;
+    justify-self: start;
+    margin-bottom: 2px;
+  }
+
+  .result-preview__actions :deep(.n-button) {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .mistake-new :deep(.formatted-analysis--panel) {
+    overflow-x: auto;
+    word-break: break-word;
+    max-height: min(36vh, 280px);
+    padding: 10px 11px;
+  }
+
+  .mistake-new :deep(.analysis-field__toolbar) {
+    margin-bottom: 4px;
+  }
+
+  .mistake-new__regen-label--full {
+    display: none;
+  }
+
+  .mistake-new__regen-label--short {
+    display: inline;
+  }
+
+  .mistake-new__save-label--full {
+    display: none;
+  }
+
+  .mistake-new__save-label--short {
+    display: inline;
+  }
+
+  .mistake-new__footer--dock :deep(.n-button) {
+    min-height: 40px;
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .mistake-new__footer--dock :deep(.n-button--primary-type) {
+    min-width: 96px;
   }
 }
 
@@ -1258,7 +1614,7 @@ async function save() {
 }
 
 .crop-modal-body {
-  --crop-view-h: min(50vh, 400px);
+  --crop-view-h: min(56vh, 480px);
   width: 100%;
   height: var(--crop-view-h);
   overflow: auto;
@@ -1279,7 +1635,7 @@ async function save() {
 
 @media (max-width: 768px) {
   .crop-modal-body {
-    --crop-view-h: min(44vh, 320px);
+    --crop-view-h: min(50vh, 360px);
   }
 }
 
