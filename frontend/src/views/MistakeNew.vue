@@ -1,12 +1,14 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import {
   NButton,
   NCard,
+  NDynamicTags,
   NFormItem,
   NGrid,
   NGridItem,
+  NImage,
   NInput,
   NModal,
   NSelect,
@@ -17,7 +19,8 @@ import {
   useMessage,
 } from "naive-ui";
 import type { Subject, Grade } from "../api/client";
-import { analyzeImage, createMistake, fetchGrades, fetchSubjects, solveFromStem } from "../api/client";
+import { analyzeImageStream, createMistake, fetchGrades, fetchSubjects, solveFromStem } from "../api/client";
+import AnalysisField from "../components/AnalysisField.vue";
 
 const router = useRouter();
 const message = useMessage();
@@ -29,6 +32,26 @@ const analyzing = ref(false);
 const solvingStem = ref(false);
 const saving = ref(false);
 const hasRecognized = ref(false);
+const showReanalyzeModal = ref(false);
+const reanalyzeHint = ref("");
+
+/** 流式识别：上游原始输出（便于感知进度） */
+const analyzeStreamOcr = ref("");
+const analyzeStreamSolve = ref("");
+const analyzePhaseLabel = ref("");
+const analyzeAbortCtrl = ref<AbortController | null>(null);
+const streamOcrPreRef = ref<HTMLElement | null>(null);
+const streamSolvePreRef = ref<HTMLElement | null>(null);
+
+watch([analyzeStreamOcr, analyzeStreamSolve], () => {
+  if (!analyzing.value) return;
+  void nextTick(() => {
+    const a = streamOcrPreRef.value;
+    const b = streamSolvePreRef.value;
+    if (a) a.scrollTop = a.scrollHeight;
+    if (b) b.scrollTop = b.scrollHeight;
+  });
+});
 
 const originalFile = ref<File | null>(null);
 const fileName = ref("");
@@ -64,6 +87,7 @@ const analysis = ref("");
 const answer = ref("");
 const subjectId = ref<string | null>(null);
 const gradeLevelId = ref<string | null>(null);
+const knowledgeTags = ref<string[]>([]);
 
 const fileInputRef = ref<HTMLInputElement | null>(null);
 
@@ -98,11 +122,71 @@ function resetImageState() {
   imgLoaded.value = false;
 }
 
-function onPickFile(e: Event) {
-  const input = e.target as HTMLInputElement;
-  const f = input.files?.[0] ?? null;
-  input.value = "";
-  if (!f) return;
+/** 从拖拽数据中取第一张图片文件 */
+function pickFirstImageFile(dt: DataTransfer | null): File | null {
+  if (!dt) return null;
+  const list = dt.files;
+  if (list?.length) {
+    for (let i = 0; i < list.length; i++) {
+      const file = list[i];
+      if (file.type.startsWith("image/")) return file;
+    }
+  }
+  const items = dt.items;
+  if (items?.length) {
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
+      if (it.kind === "file") {
+        const file = it.getAsFile();
+        if (file?.type.startsWith("image/")) return file;
+      }
+    }
+  }
+  return null;
+}
+
+const imageDropActive = ref(false);
+
+function onImageDragOver(e: DragEvent) {
+  e.preventDefault();
+  if (e.dataTransfer) {
+    e.dataTransfer.dropEffect = analyzeBusy.value ? "none" : "copy";
+  }
+}
+
+function onImageDragEnter(e: DragEvent) {
+  if (analyzeBusy.value) return;
+  e.preventDefault();
+  imageDropActive.value = true;
+}
+
+function onImageDragLeave(e: DragEvent) {
+  const root = e.currentTarget as HTMLElement;
+  const rel = e.relatedTarget as Node | null;
+  if (rel && root.contains(rel)) return;
+  imageDropActive.value = false;
+}
+
+function onImageDrop(e: DragEvent) {
+  e.preventDefault();
+  imageDropActive.value = false;
+  if (analyzeBusy.value) {
+    message.warning("请等待当前识别完成后再更换图片");
+    return;
+  }
+  const f = pickFirstImageFile(e.dataTransfer);
+  if (!f) {
+    message.warning("请拖拽图片文件（如 JPG、PNG）到此处");
+    return;
+  }
+  acceptImageFile(f);
+}
+
+function acceptImageFile(f: File) {
+  if (!f.type.startsWith("image/")) {
+    message.warning("请选择图片文件（如 JPG、PNG、WebP）");
+    return;
+  }
   revokePreview();
   revokeResultPreview();
   selRect.value = null;
@@ -114,12 +198,21 @@ function onPickFile(e: Event) {
   answer.value = "";
   subjectId.value = null;
   gradeLevelId.value = null;
+  knowledgeTags.value = [];
   hasRecognized.value = false;
   originalFile.value = f;
   fileName.value = f.name;
   previewUrl.value = URL.createObjectURL(f);
   resetZoom();
   showCropModal.value = true;
+}
+
+function onPickFile(e: Event) {
+  const input = e.target as HTMLInputElement;
+  const f = input.files?.[0] ?? null;
+  input.value = "";
+  if (!f) return;
+  acceptImageFile(f);
 }
 
 function onImgLoad() {
@@ -434,9 +527,7 @@ function reopenCropModal() {
 
 onMounted(async () => {
   try {
-    const [ss, gs] = await Promise.all([fetchSubjects(), fetchGrades()]);
-    subjects.value = ss;
-    grades.value = gs;
+    grades.value = await fetchGrades();
   } catch (e) {
     message.error((e as Error).message);
   } finally {
@@ -445,6 +536,7 @@ onMounted(async () => {
 });
 
 onBeforeUnmount(() => {
+  analyzeAbortCtrl.value?.abort();
   detachCropListeners();
   revokePreview();
   revokeResultPreview();
@@ -452,6 +544,23 @@ onBeforeUnmount(() => {
 
 const subjectOptions = computed(() => subjects.value.map((s) => ({ label: s.name, value: s.id })));
 const gradeOptions = computed(() => grades.value.map((g) => ({ label: g.name, value: g.id })));
+
+async function loadSubjectsForGrade(gradeId: string | null) {
+  if (!gradeId) {
+    subjects.value = [];
+    subjectId.value = null;
+    return;
+  }
+  try {
+    subjects.value = await fetchSubjects({ grade_level_id: gradeId });
+    if (subjectId.value && !subjects.value.some((s) => s.id === subjectId.value)) {
+      subjectId.value = null;
+    }
+  } catch (e) {
+    message.error((e as Error).message);
+    subjects.value = [];
+  }
+}
 
 const selectionStyle = computed(() => {
   const r = selRect.value;
@@ -473,50 +582,115 @@ const cropStageStyle = computed(() => ({
 const zoomPercent = computed(() => Math.round(zoomScale.value * 100));
 
 const analyzeBusy = computed(() => analyzing.value || solvingStem.value);
-const analyzeSpinDesc = computed(() =>
-  solvingStem.value ? "正在根据题干生成解析…" : "AI 识别中…",
-);
+const analyzeSpinDesc = computed(() => {
+  if (solvingStem.value) return "正在根据题干生成解析…";
+  if (analyzing.value && analyzePhaseLabel.value) return analyzePhaseLabel.value;
+  return "AI 识别中…";
+});
 
-function applySolveSuggestions(
+async function applySolveSuggestions(
   res: {
     analysis: string;
     answer: string;
     suggested_subject_code: string | null;
     suggested_grade_level: number | null;
+    knowledge_tags?: string[];
   },
   opts?: { fallbackSubject?: boolean },
 ) {
   analysis.value = res.analysis;
   answer.value = res.answer;
+  if (res.suggested_grade_level != null) {
+    const g = grades.value.find((x) => x.level === res.suggested_grade_level);
+    if (g) {
+      gradeLevelId.value = g.id;
+      await loadSubjectsForGrade(g.id);
+    }
+  }
   const subj = subjects.value.find((s) => s.code === res.suggested_subject_code);
   if (subj) {
     subjectId.value = subj.id;
   } else if (opts?.fallbackSubject) {
     subjectId.value = subjects.value[0]?.id ?? null;
   }
-  if (res.suggested_grade_level != null) {
-    const g = grades.value.find((x) => x.level === res.suggested_grade_level);
-    if (g) gradeLevelId.value = g.id;
+  if (res.knowledge_tags?.length) {
+    knowledgeTags.value = [...res.knowledge_tags];
   }
 }
 
-async function runAnalyze() {
+function solveContext() {
+  const subj = subjects.value.find((s) => s.id === subjectId.value);
+  const grade = grades.value.find((g) => g.id === gradeLevelId.value);
+  return {
+    subject_code: subj?.code ?? null,
+    grade_level: grade?.level ?? null,
+  };
+}
+
+async function runAnalyze(ocrHint?: string) {
   if (!uploadFile.value) {
     message.warning("请先选择题目图片并完成框选确认");
     return;
   }
+  analyzeAbortCtrl.value?.abort();
+  analyzeAbortCtrl.value = new AbortController();
   analyzing.value = true;
+  analyzeStreamOcr.value = "";
+  analyzeStreamSolve.value = "";
+  analyzePhaseLabel.value = "准备识别…";
   try {
-    const res = await analyzeImage(uploadFile.value);
+    const hint = ocrHint?.trim();
+    const res = await analyzeImageStream(
+      uploadFile.value,
+      (ev) => {
+        if (ev.type === "phase") {
+          analyzePhaseLabel.value = ev.label;
+          return;
+        }
+        if (ev.type === "delta") {
+          if (ev.phase === "ocr") analyzeStreamOcr.value += ev.text;
+          else analyzeStreamSolve.value += ev.text;
+          return;
+        }
+        if (ev.type === "stem") {
+          stem.value = ev.text;
+        }
+      },
+      hint ? { ocr_hint: hint } : undefined,
+      analyzeAbortCtrl.value.signal,
+    );
     stem.value = res.stem;
-    applySolveSuggestions(res, { fallbackSubject: true });
+    await applySolveSuggestions(res, { fallbackSubject: true });
     hasRecognized.value = true;
     message.success(usedCropRegion.value ? "已按框选区域识别，请核对题干并保存" : "识别完成，请核对题干并保存");
   } catch (e) {
-    message.error((e as Error).message);
+    const err = e as Error;
+    if (err.name === "AbortError") return;
+    message.error(err.message);
   } finally {
     analyzing.value = false;
+    analyzePhaseLabel.value = "";
+    analyzeAbortCtrl.value = null;
   }
+}
+
+function openReanalyzeModal() {
+  if (!uploadFile.value) {
+    message.warning("请先选择题目图片并完成框选确认");
+    return;
+  }
+  if (analyzeBusy.value) return;
+  reanalyzeHint.value = "";
+  showReanalyzeModal.value = true;
+}
+
+function cancelReanalyze() {
+  showReanalyzeModal.value = false;
+}
+
+async function confirmReanalyze() {
+  showReanalyzeModal.value = false;
+  await runAnalyze(reanalyzeHint.value);
 }
 
 async function runSolveFromStem() {
@@ -527,8 +701,8 @@ async function runSolveFromStem() {
   }
   solvingStem.value = true;
   try {
-    const res = await solveFromStem(text);
-    applySolveSuggestions(res);
+    const res = await solveFromStem(text, solveContext());
+    await applySolveSuggestions(res);
     message.success("已根据题干重新生成解析与答案");
   } catch (e) {
     message.error((e as Error).message);
@@ -558,6 +732,7 @@ async function save() {
       stem: stem.value,
       analysis: analysis.value,
       answer: answer.value,
+      knowledge_tags: knowledgeTags.value,
       image: uploadFile.value,
     });
     message.success("已保存");
@@ -575,7 +750,9 @@ async function save() {
     <div class="mistake-new page-root">
       <header class="page-header mistake-new__header">
         <h1 class="page-header__title">录入错题</h1>
-        <p class="page-header__desc">上传并框选题目后自动识别；可修改题干后重新生成解析与答案。</p>
+        <p class="page-header__desc">
+          上传并框选题目后自动识别；识别过程采用流式输出。题干与解题思路均支持「编辑 / 排版预览」（**加粗**、分段、&lt;u&gt; 下划线等）。可修改题干后重新生成解析与答案。
+        </p>
       </header>
       <NCard class="surface-card mistake-new__card" size="small" :bordered="false">
         <NSpin :show="analyzeBusy" :description="analyzeSpinDesc">
@@ -592,19 +769,44 @@ async function save() {
             <NGridItem class="mistake-new__aside" span="24 l:9">
               <section class="mistake-new__section">
                 <h2 class="mistake-new__section-title">题目图片</h2>
-                <label v-if="!resultPreviewUrl" class="file-picker file-picker--compact" for="mistake-image-input">
+                <label
+                  v-if="!resultPreviewUrl"
+                  class="file-picker file-picker--compact"
+                  :class="{ 'file-picker--dragover': imageDropActive }"
+                  for="mistake-image-input"
+                  @dragenter.prevent="onImageDragEnter"
+                  @dragover.prevent="onImageDragOver"
+                  @dragleave.prevent="onImageDragLeave"
+                  @drop.prevent="onImageDrop"
+                >
                   <div class="file-picker__text">
-                    <div class="file-picker__hint">选择或拍摄题目图片</div>
-                    <div class="file-picker__sub">上传后弹窗框选识别区域</div>
+                    <div class="file-picker__hint">点击选择或拖拽题目图片</div>
+                    <div class="file-picker__sub">上传后将在弹窗中框选识别区域</div>
                   </div>
                 </label>
-                <div v-else class="result-preview result-preview--compact">
-                  <img :src="resultPreviewUrl" alt="已确认的题目区域" />
-                  <NSpace align="center" wrap :size="6" class="result-preview__actions">
+                <div
+                  v-else
+                  class="result-preview result-preview--compact"
+                  :class="{ 'result-preview--dragover': imageDropActive }"
+                  @dragenter.prevent="onImageDragEnter"
+                  @dragover.prevent="onImageDragOver"
+                  @dragleave.prevent="onImageDragLeave"
+                  @drop.prevent="onImageDrop"
+                >
+                  <NImage
+                    width="100%"
+                    class="result-preview__image"
+                    :src="resultPreviewUrl"
+                    object-fit="contain"
+                    alt="已确认的题目区域"
+                    :previewed-img-props="{ style: { maxWidth: 'none', maxHeight: 'none' } }"
+                  />
+                  <p class="result-preview__zoom-hint">点击图片可查看原尺寸；也可拖拽新图片到此处更换</p>
+                  <NSpace align="center" justify="end" wrap :size="6" class="result-preview__actions app-actions">
                     <NTag v-if="usedCropRegion" size="small" type="info" :bordered="false">已框选</NTag>
                     <NTag v-else size="small" :bordered="false">整张图</NTag>
                     <NButton size="tiny" tertiary @click="reopenCropModal">重新框选</NButton>
-                    <NButton size="tiny" secondary :loading="analyzing" :disabled="analyzeBusy || !uploadFile" @click="runAnalyze">
+                    <NButton size="tiny" secondary :loading="analyzing" :disabled="analyzeBusy || !uploadFile" @click="openReanalyzeModal">
                       重新识别
                     </NButton>
                     <NButton size="tiny" quaternary @click="pickAnotherImage">更换图片</NButton>
@@ -615,20 +817,30 @@ async function save() {
               <section class="mistake-new__section">
                 <h2 class="mistake-new__section-title">分类信息</h2>
                 <NSpace vertical :size="10" style="width: 100%">
-                  <NFormItem label="科目" :show-feedback="false" class="mistake-new__item" label-placement="top">
-                    <NSelect
-                      v-model:value="subjectId"
-                      size="small"
-                      :options="subjectOptions"
-                      placeholder="请选择科目"
-                    />
-                  </NFormItem>
                   <NFormItem label="年级" :show-feedback="false" class="mistake-new__item" label-placement="top">
                     <NSelect
                       v-model:value="gradeLevelId"
                       size="small"
                       :options="gradeOptions"
-                      placeholder="请选择年级"
+                      placeholder="请先选择年级"
+                      @update:value="(v) => void loadSubjectsForGrade(v)"
+                    />
+                  </NFormItem>
+                  <NFormItem label="科目" :show-feedback="false" class="mistake-new__item" label-placement="top">
+                    <NSelect
+                      v-model:value="subjectId"
+                      size="small"
+                      :options="subjectOptions"
+                      :disabled="!gradeLevelId"
+                      placeholder="请选择科目"
+                    />
+                  </NFormItem>
+                  <NFormItem label="知识点标签" :show-feedback="false" class="mistake-new__item" label-placement="top">
+                    <NDynamicTags
+                      v-model:value="knowledgeTags"
+                      size="small"
+                      :max="6"
+                      placeholder="AI 识别后可编辑，回车添加"
                     />
                   </NFormItem>
                 </NSpace>
@@ -642,15 +854,31 @@ async function save() {
                   <NText v-if="hasRecognized" depth="3" class="mistake-new__section-hint">修改题干后可重新生成</NText>
                 </div>
 
+                <div v-show="analyzing" class="mistake-new__stream-panel">
+                  <NText depth="3" class="mistake-new__stream-tip">
+                    AI 实时输出（与聊天类似逐字返回；完成后将写入下方题干与解答）
+                  </NText>
+                  <div class="mistake-new__stream-columns">
+                    <div class="mistake-new__stream-col">
+                      <div class="mistake-new__stream-col-title">识图模型</div>
+                      <pre ref="streamOcrPreRef" class="mistake-new__stream-pre">{{ analyzeStreamOcr }}</pre>
+                    </div>
+                    <div class="mistake-new__stream-col">
+                      <div class="mistake-new__stream-col-title">解题模型</div>
+                      <pre ref="streamSolvePreRef" class="mistake-new__stream-pre">{{ analyzeStreamSolve }}</pre>
+                    </div>
+                  </div>
+                </div>
+
                 <NSpace vertical :size="12" style="width: 100%">
                   <NFormItem label="题干" :show-feedback="false" class="mistake-new__item" label-placement="top">
                     <NSpace vertical :size="8" style="width: 100%">
-                      <NInput
-                        v-model:value="stem"
-                        type="textarea"
-                        size="small"
-                        placeholder="识别结果可在此修改"
-                        :autosize="{ minRows: 4, maxRows: 14 }"
+                      <AnalysisField
+                        v-model="stem"
+                        variant="stem"
+                        :min-rows="4"
+                        :max-rows="14"
+                        empty-text="识别结果将显示在此"
                       />
                       <NButton
                         v-if="hasRecognized"
@@ -667,12 +895,9 @@ async function save() {
                   </NFormItem>
 
                   <NFormItem label="解题思路" :show-feedback="false" class="mistake-new__item" label-placement="top">
-                    <NInput
-                      v-model:value="analysis"
-                      type="textarea"
-                      size="small"
-                      placeholder="解题步骤与思路"
-                      :autosize="{ minRows: 4, maxRows: 14 }"
+                    <AnalysisField
+                      v-model="analysis"
+                      empty-text="识别或根据题干生成后将显示解题思路"
                     />
                   </NFormItem>
 
@@ -690,10 +915,9 @@ async function save() {
             </NGridItem>
           </NGrid>
 
-          <footer class="mistake-new__footer">
-            <NButton class="mistake-new__footer-btn" size="small" @click="router.push('/mistakes')">返回</NButton>
+          <footer class="app-actions app-actions--bar">
+            <NButton size="small" @click="router.push('/mistakes')">返回</NButton>
             <NButton
-              class="mistake-new__footer-btn"
               type="primary"
               size="small"
               :loading="saving"
@@ -752,13 +976,34 @@ async function save() {
           </div>
         </div>
       </div>
-      <NSpace justify="space-between" align="center" wrap class="crop-modal__footer">
+      <NSpace justify="end" align="center" wrap :size="6" class="crop-modal__footer app-actions">
         <NButton size="tiny" secondary :disabled="!selRect" @click="clearSelection">清除选区</NButton>
-        <NSpace :size="6" wrap>
-          <NButton size="small" @click="cancelCrop">取消</NButton>
-          <NButton size="small" :disabled="!imgLoaded" @click="confirmCrop(true)">整张图</NButton>
-          <NButton type="primary" size="small" :disabled="!imgLoaded" @click="confirmCrop(false)">确定选区</NButton>
-        </NSpace>
+        <NButton size="small" @click="cancelCrop">取消</NButton>
+        <NButton size="small" :disabled="!imgLoaded" @click="confirmCrop(true)">整张图</NButton>
+        <NButton type="primary" size="small" :disabled="!imgLoaded" @click="confirmCrop(false)">确定选区</NButton>
+      </NSpace>
+    </NModal>
+
+    <NModal
+      v-model:show="showReanalyzeModal"
+      preset="card"
+      title="重新识别题干"
+      style="width: min(520px, 94vw)"
+      :mask-closable="!analyzing"
+    >
+      <NText depth="3" class="reanalyze-modal__tip">
+        可填写补充说明（如漏识别的选项、易错单词、下划线位置等），将一并传给识图模型以提高准确度；留空则仅按图片重新识别。
+      </NText>
+      <NInput
+        v-model:value="reanalyzeHint"
+        type="textarea"
+        :autosize="{ minRows: 6, maxRows: 14 }"
+        placeholder="例如：第 2 题选项 B 是 boy 不是 toy；划线在字母 o 上…"
+        class="reanalyze-modal__input"
+      />
+      <NSpace justify="end" align="center" wrap :size="8" class="reanalyze-modal__footer app-actions">
+        <NButton size="small" :disabled="analyzing" @click="cancelReanalyze">取消</NButton>
+        <NButton type="primary" size="small" :loading="analyzing" @click="confirmReanalyze">开始识别</NButton>
       </NSpace>
     </NModal>
   </NSpin>
@@ -831,6 +1076,56 @@ async function save() {
   font-size: 12px;
 }
 
+.mistake-new__stream-panel {
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(99, 102, 241, 0.22);
+  background: rgba(99, 102, 241, 0.04);
+}
+
+.mistake-new__stream-tip {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.mistake-new__stream-columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+}
+
+.mistake-new__stream-col-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: #64748b;
+  margin-bottom: 4px;
+}
+
+.mistake-new__stream-pre {
+  margin: 0;
+  min-height: 72px;
+  max-height: min(28vh, 220px);
+  overflow: auto;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: #334155;
+}
+
+.mistake-new__stream-pre :deep(u) {
+  display: inline;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 .mistake-new__item {
   margin-bottom: 0;
 }
@@ -841,29 +1136,18 @@ async function save() {
   font-weight: 500;
 }
 
-.mistake-new__footer {
-  display: flex;
-  justify-content: flex-end;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 16px;
-  padding-top: 14px;
-  border-top: 1px solid var(--app-border);
+.mistake-new__item :deep(.n-form-item-blank) {
+  width: 100%;
+  min-width: 0;
+}
+
+.mistake-new__item :deep(.n-input) {
+  width: 100%;
 }
 
 @media (max-width: 768px) {
   .mistake-new__card :deep(.n-card__content) {
     padding: 12px 14px;
-  }
-
-  .mistake-new__footer {
-    flex-direction: column-reverse;
-    align-items: stretch;
-  }
-
-  .mistake-new__footer-btn {
-    width: 100%;
   }
 
   .mistake-new__section--main {
@@ -872,9 +1156,14 @@ async function save() {
   }
 }
 
-.file-picker--compact {
-  min-height: 72px;
-  padding: 12px 14px;
+.file-picker--compact.file-picker--dragover {
+  border-color: rgba(79, 70, 229, 0.65);
+  background: rgba(99, 102, 241, 0.12);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+}
+
+.result-preview--compact.result-preview--dragover {
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.55);
   border-radius: 12px;
 }
 
@@ -891,9 +1180,22 @@ async function save() {
   border-radius: 12px;
 }
 
-.result-preview--compact img {
+.result-preview--compact img,
+.result-preview__image :deep(img) {
+  display: block;
+  width: 100%;
   max-height: min(42vh, 320px);
+  object-fit: contain;
   border-radius: 8px;
+  margin: 0 auto;
+  cursor: zoom-in;
+}
+
+.result-preview__zoom-hint {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--app-text-subtle);
+  text-align: center;
 }
 
 .result-preview__actions {
@@ -938,8 +1240,21 @@ async function save() {
   text-align: center;
 }
 
-.crop-modal__footer {
+.mistake-new__footer,
+.crop-modal__footer,
+.reanalyze-modal__footer {
   margin-top: 8px;
+}
+
+.reanalyze-modal__tip {
+  display: block;
+  font-size: 13px;
+  line-height: 1.55;
+  margin-bottom: 10px;
+}
+
+.reanalyze-modal__input {
+  width: 100%;
 }
 
 .crop-modal-body {
@@ -1123,5 +1438,9 @@ async function save() {
   object-fit: contain;
   border-radius: 10px;
   margin: 0 auto;
+}
+
+.result-preview__image :deep(img) {
+  cursor: zoom-in;
 }
 </style>

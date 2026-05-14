@@ -22,6 +22,11 @@ const router = createRouter({
       component: () => import("../views/MistakeNew.vue"),
     },
     {
+      path: "/mistakes/:id/practice",
+      name: "mistake-practice",
+      component: () => import("../views/MistakePractice.vue"),
+    },
+    {
       path: "/mistakes/:id/edit",
       name: "mistake-edit",
       component: () => import("../views/MistakeEdit.vue"),
@@ -32,15 +37,17 @@ const router = createRouter({
       component: () => import("../views/MistakeDetail.vue"),
     },
     {
-      path: "/subjects",
-      name: "subjects",
-      component: () => import("../views/SubjectsView.vue"),
+      path: "/stats",
+      name: "statistics",
+      component: () => import("../views/StatisticsView.vue"),
     },
     {
-      path: "/grades",
-      name: "grades",
-      component: () => import("../views/GradesView.vue"),
+      path: "/grade-subjects",
+      name: "grade-subjects",
+      component: () => import("../views/GradeSubjectsView.vue"),
     },
+    { path: "/subjects", redirect: "/grade-subjects" },
+    { path: "/grades", redirect: "/grade-subjects" },
     {
       path: "/settings/ai",
       name: "settings-ai",

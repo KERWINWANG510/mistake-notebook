@@ -1,17 +1,21 @@
+import json
 import uuid
 from pathlib import Path
 
+from typing import Literal
+
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
-from sqlalchemy import select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
 from app.config import get_settings
 from app.database import get_db
-from app.models import GradeLevel, Mistake, Subject, User
+from app.models import GradeLevel, GradeSubject, Mistake, Subject, User
+from app.knowledge_tags import normalize_knowledge_tags as _normalize_tags
 from app.routers.deps import get_current_user
-from app.schemas import MistakeOut, MistakeUpdate
+from app.schemas import KnowledgeTagCount, MistakeOut, MistakeUpdate, SubjectMistakeSummary
 
 router = APIRouter(prefix="/api/mistakes", tags=["mistakes"])
 
@@ -25,6 +29,8 @@ def _mistake_out(m: Mistake) -> MistakeOut:
         analysis=m.analysis,
         answer=m.answer,
         image_path=m.image_path,
+        is_mastered=m.is_mastered,
+        knowledge_tags=list(m.knowledge_tags or []),
         created_at=m.created_at,
         updated_at=m.updated_at,
         subject_name=m.subject.name if m.subject else None,
@@ -46,6 +52,8 @@ async def list_mistakes(
     db: AsyncSession = Depends(get_db),
     subject_id: str | None = None,
     grade_level_id: str | None = None,
+    mastery: Literal["mastered", "unmastered", "all"] = "unmastered",
+    knowledge_tag: str | None = None,
 ) -> list[MistakeOut]:
     q = (
         select(Mistake)
@@ -57,9 +65,122 @@ async def list_mistakes(
         q = q.where(Mistake.subject_id == subject_id)
     if grade_level_id:
         q = q.where(Mistake.grade_level_id == grade_level_id)
+    if mastery == "mastered":
+        q = q.where(Mistake.is_mastered.is_(True))
+    elif mastery == "unmastered":
+        q = q.where(Mistake.is_mastered.is_(False))
+    if knowledge_tag:
+        tag = knowledge_tag.strip()
+        if tag:
+            q = q.where(
+                text(
+                    "EXISTS (SELECT 1 FROM json_each(mistakes.knowledge_tags) "
+                    "WHERE json_each.value = :ktag)"
+                ).bindparams(ktag=tag)
+            )
     result = await db.execute(q)
     rows = result.unique().scalars().all()
     return [_mistake_out(m) for m in rows]
+
+
+@router.get("/summary/by-subject", response_model=list[SubjectMistakeSummary])
+async def subject_mistake_summary(
+    grade_level_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[SubjectMistakeSummary]:
+    if not await db.get(GradeLevel, grade_level_id):
+        raise HTTPException(status_code=400, detail="年级不存在")
+
+    catalog = (
+        await db.execute(
+            select(Subject.id, Subject.name, Subject.code, GradeSubject.sort_order)
+            .join(GradeSubject, GradeSubject.subject_id == Subject.id)
+            .where(GradeSubject.grade_level_id == grade_level_id)
+            .order_by(GradeSubject.sort_order, Subject.name)
+        )
+    ).all()
+
+    counts_q = (
+        select(
+            Mistake.subject_id,
+            func.count(Mistake.id).label("mistake_count"),
+        )
+        .where(
+            Mistake.user_id == user.id,
+            Mistake.grade_level_id == grade_level_id,
+            Mistake.is_mastered.is_(False),
+        )
+        .group_by(Mistake.subject_id)
+    )
+    counts = {row.subject_id: row.mistake_count for row in (await db.execute(counts_q)).all()}
+
+    tag_rows = (
+        await db.execute(
+            select(Mistake.subject_id, Mistake.knowledge_tags).where(
+                Mistake.user_id == user.id,
+                Mistake.grade_level_id == grade_level_id,
+                Mistake.is_mastered.is_(False),
+            )
+        )
+    ).all()
+    tags_by_subject: dict[str, dict[str, int]] = {}
+    for subject_id, ktags in tag_rows:
+        for t in ktags or []:
+            if not t:
+                continue
+            bucket = tags_by_subject.setdefault(subject_id, {})
+            bucket[t] = bucket.get(t, 0) + 1
+
+    def tag_counts_for(subject_id: str) -> list[KnowledgeTagCount]:
+        items = tags_by_subject.get(subject_id, {})
+        return [
+            KnowledgeTagCount(tag=name, count=cnt)
+            for name, cnt in sorted(items.items(), key=lambda x: (-x[1], x[0]))
+        ]
+
+    if catalog:
+        rows = [
+            SubjectMistakeSummary(
+                subject_id=row.id,
+                subject_name=row.name,
+                subject_code=row.code,
+                mistake_count=int(counts.get(row.id, 0)),
+                knowledge_tags=tag_counts_for(row.id),
+            )
+            for row in catalog
+        ]
+        rows = [r for r in rows if r.mistake_count > 0]
+        rows.sort(key=lambda r: (-r.mistake_count, r.subject_name))
+        return rows
+
+    q = (
+        select(
+            Mistake.subject_id,
+            Subject.name,
+            Subject.code,
+            func.count(Mistake.id).label("mistake_count"),
+        )
+        .join(Subject, Mistake.subject_id == Subject.id)
+        .where(
+            Mistake.user_id == user.id,
+            Mistake.grade_level_id == grade_level_id,
+            Mistake.is_mastered.is_(False),
+        )
+        .group_by(Mistake.subject_id, Subject.name, Subject.code)
+        .order_by(func.count(Mistake.id).desc(), Subject.name.asc())
+    )
+    result = await db.execute(q)
+    return [
+        SubjectMistakeSummary(
+            subject_id=row.subject_id,
+            subject_name=row.name,
+            subject_code=row.code,
+            mistake_count=row.mistake_count,
+            knowledge_tags=tag_counts_for(row.subject_id),
+        )
+        for row in result.all()
+    ]
 
 
 @router.get("/{mistake_id}/image")
@@ -132,12 +253,21 @@ async def create_mistake(
     stem: str = Form(...),
     analysis: str = Form(""),
     answer: str = Form(""),
+    knowledge_tags: str = Form("[]"),
     image: UploadFile | None = File(None),
 ) -> MistakeOut:
     if not await db.get(Subject, subject_id):
         raise HTTPException(status_code=400, detail="科目不存在")
     if not await db.get(GradeLevel, grade_level_id):
         raise HTTPException(status_code=400, detail="年级不存在")
+
+    try:
+        raw_tags = json.loads(knowledge_tags) if knowledge_tags else []
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=400, detail="知识点标签格式不正确") from e
+    if not isinstance(raw_tags, list):
+        raise HTTPException(status_code=400, detail="知识点标签须为数组")
+    tags = _normalize_tags([str(t) for t in raw_tags])
 
     mid = str(uuid.uuid4())
     image_rel: str | None = None
@@ -163,6 +293,7 @@ async def create_mistake(
         analysis=analysis or "",
         answer=answer or "",
         image_path=image_rel,
+        knowledge_tags=tags,
     )
     db.add(row)
     await db.commit()
@@ -198,6 +329,10 @@ async def update_mistake(
         m.analysis = body.analysis
     if body.answer is not None:
         m.answer = body.answer
+    if body.is_mastered is not None:
+        m.is_mastered = body.is_mastered
+    if body.knowledge_tags is not None:
+        m.knowledge_tags = _normalize_tags(body.knowledge_tags)
     await db.commit()
     q = (
         select(Mistake)

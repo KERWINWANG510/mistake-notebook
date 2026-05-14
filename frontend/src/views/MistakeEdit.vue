@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { NButton, NCard, NFormItem, NImage, NInput, NSelect, NSpace, NSpin, useMessage } from "naive-ui";
+import { NButton, NCard, NDynamicTags, NFormItem, NImage, NInput, NSelect, NSpace, NSwitch, NSpin, useMessage } from "naive-ui";
+import AnalysisField from "../components/AnalysisField.vue";
 import type { Grade, Mistake, Subject } from "../api/client";
 import {
   fetchGrades,
@@ -31,12 +32,30 @@ const analysis = ref("");
 const answer = ref("");
 const subjectId = ref<string | null>(null);
 const gradeLevelId = ref<string | null>(null);
+const isMastered = ref(false);
+const knowledgeTags = ref<string[]>([]);
 
 const imageObjectUrl = ref<string | null>(null);
 const imageInputRef = ref<HTMLInputElement | null>(null);
 
 const subjectOptions = computed(() => subjects.value.map((s) => ({ label: s.name, value: s.id })));
 const gradeOptions = computed(() => grades.value.map((g) => ({ label: g.name, value: g.id })));
+
+async function loadSubjectsForGrade(gradeId: string | null) {
+  if (!gradeId) {
+    subjects.value = [];
+    return;
+  }
+  try {
+    subjects.value = await fetchSubjects({ grade_level_id: gradeId });
+    if (subjectId.value && !subjects.value.some((s) => s.id === subjectId.value)) {
+      subjectId.value = subjects.value[0]?.id ?? null;
+    }
+  } catch (e) {
+    message.error((e as Error).message);
+    subjects.value = [];
+  }
+}
 
 async function loadImageBlob() {
   if (imageObjectUrl.value) {
@@ -54,15 +73,17 @@ async function loadImageBlob() {
 async function load() {
   loading.value = true;
   try {
-    const [m, ss, gs] = await Promise.all([fetchMistake(id.value), fetchSubjects(), fetchGrades()]);
+    const [m, gs] = await Promise.all([fetchMistake(id.value), fetchGrades()]);
     row.value = m;
     stem.value = m.stem;
     analysis.value = m.analysis;
     answer.value = m.answer;
     subjectId.value = m.subject_id;
     gradeLevelId.value = m.grade_level_id;
-    subjects.value = ss;
+    isMastered.value = m.is_mastered;
+    knowledgeTags.value = [...(m.knowledge_tags ?? [])];
     grades.value = gs;
+    await loadSubjectsForGrade(m.grade_level_id);
     await loadImageBlob();
   } catch (e) {
     message.error((e as Error).message);
@@ -78,11 +99,71 @@ onBeforeUnmount(() => {
   if (imageObjectUrl.value) URL.revokeObjectURL(imageObjectUrl.value);
 });
 
-async function onReplaceImage(e: Event) {
-  const input = e.target as HTMLInputElement;
-  const f = input.files?.[0];
-  input.value = "";
-  if (!f) return;
+/** 从拖拽数据中取第一张图片文件 */
+function pickFirstImageFile(dt: DataTransfer | null): File | null {
+  if (!dt) return null;
+  const list = dt.files;
+  if (list?.length) {
+    for (let i = 0; i < list.length; i++) {
+      const file = list[i];
+      if (file.type.startsWith("image/")) return file;
+    }
+  }
+  const items = dt.items;
+  if (items?.length) {
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
+      if (it.kind === "file") {
+        const file = it.getAsFile();
+        if (file?.type.startsWith("image/")) return file;
+      }
+    }
+  }
+  return null;
+}
+
+const imageDropActive = ref(false);
+
+function onReplaceImageDragOver(e: DragEvent) {
+  e.preventDefault();
+  if (e.dataTransfer) {
+    e.dataTransfer.dropEffect = uploading.value || solvingStem.value ? "none" : "copy";
+  }
+}
+
+function onReplaceImageDragEnter(e: DragEvent) {
+  if (uploading.value || solvingStem.value) return;
+  e.preventDefault();
+  imageDropActive.value = true;
+}
+
+function onReplaceImageDragLeave(e: DragEvent) {
+  const root = e.currentTarget as HTMLElement;
+  const rel = e.relatedTarget as Node | null;
+  if (rel && root.contains(rel)) return;
+  imageDropActive.value = false;
+}
+
+async function onReplaceImageDrop(e: DragEvent) {
+  e.preventDefault();
+  imageDropActive.value = false;
+  if (uploading.value || solvingStem.value) {
+    message.warning("请等待当前操作完成后再上传图片");
+    return;
+  }
+  const f = pickFirstImageFile(e.dataTransfer);
+  if (!f) {
+    message.warning("请拖拽图片文件（如 JPG、PNG）到此处");
+    return;
+  }
+  await applyReplaceImageFile(f);
+}
+
+async function applyReplaceImageFile(f: File) {
+  if (!f.type.startsWith("image/")) {
+    message.warning("请上传图片文件（如 JPG、PNG、WebP）");
+    return;
+  }
   uploading.value = true;
   try {
     await replaceMistakeImage(id.value, f);
@@ -93,6 +174,14 @@ async function onReplaceImage(e: Event) {
   } finally {
     uploading.value = false;
   }
+}
+
+async function onReplaceImage(e: Event) {
+  const input = e.target as HTMLInputElement;
+  const f = input.files?.[0];
+  input.value = "";
+  if (!f) return;
+  await applyReplaceImageFile(f);
 }
 
 function triggerReplaceImage() {
@@ -108,16 +197,27 @@ async function runSolveFromStem() {
   }
   solvingStem.value = true;
   try {
-    const res = await solveFromStem(text);
+    const subj = subjects.value.find((s) => s.id === subjectId.value);
+    const grade = grades.value.find((g) => g.id === gradeLevelId.value);
+    const res = await solveFromStem(text, {
+      subject_code: subj?.code ?? null,
+      grade_level: grade?.level ?? null,
+    });
     analysis.value = res.analysis;
     answer.value = res.answer;
-    const subj = subjects.value.find((s) => s.code === res.suggested_subject_code);
-    if (subj) subjectId.value = subj.id;
+    const matched = subjects.value.find((s) => s.code === res.suggested_subject_code);
+    if (matched) subjectId.value = matched.id;
     if (res.suggested_grade_level != null) {
       const g = grades.value.find((x) => x.level === res.suggested_grade_level);
-      if (g) gradeLevelId.value = g.id;
+      if (g) {
+        gradeLevelId.value = g.id;
+        await loadSubjectsForGrade(g.id);
+      }
     }
-    message.success("已根据题干重新生成解析与答案");
+    if (res.knowledge_tags?.length) {
+      knowledgeTags.value = [...res.knowledge_tags];
+    }
+    message.success("已根据题干重新生成解析、答案与知识点标签");
   } catch (e) {
     message.error((e as Error).message);
   } finally {
@@ -142,6 +242,8 @@ async function save() {
       stem: stem.value,
       analysis: analysis.value,
       answer: answer.value,
+      is_mastered: isMastered.value,
+      knowledge_tags: knowledgeTags.value,
     });
     message.success("已保存");
     router.push(`/mistakes/${id.value}`);
@@ -155,7 +257,7 @@ async function save() {
 
 <template>
   <NSpin :show="loading">
-    <div v-if="row" class="mistake-edit page-root">
+    <div v-if="row" class="mistake-edit page-root page-root--fixed-actions">
       <header class="page-header mistake-edit__header">
         <h1 class="page-header__title">编辑错题</h1>
         <p class="page-header__desc">修改分类、题干或解答内容；保存后返回详情页查看。</p>
@@ -174,7 +276,15 @@ async function save() {
           <NSpace vertical :size="14" style="width: 100%">
             <section v-if="row.image_path || imageObjectUrl" class="mistake-edit__section">
               <h2 class="mistake-edit__section-title">题目图片</h2>
-              <div class="mistake-edit__image-wrap">
+              <p class="mistake-edit__image-hint">支持点击「编辑配图」或将图片拖入下方预览区域更换。</p>
+              <div
+                class="mistake-edit__image-wrap"
+                :class="{ 'mistake-edit__image-wrap--dragover': imageDropActive }"
+                @dragenter.prevent="onReplaceImageDragEnter"
+                @dragover.prevent="onReplaceImageDragOver"
+                @dragleave.prevent="onReplaceImageDragLeave"
+                @drop.prevent="onReplaceImageDrop"
+              >
                 <NImage
                   v-if="imageObjectUrl"
                   width="100%"
@@ -196,15 +306,6 @@ async function save() {
             </section>
 
             <div class="mistake-edit__meta">
-              <NFormItem label="科目" :show-feedback="false" class="mistake-edit__item mistake-edit__item--inline" label-placement="top">
-                <NSelect
-                  v-model:value="subjectId"
-                  size="small"
-                  class="mistake-edit__select"
-                  placeholder="请选择科目"
-                  :options="subjectOptions"
-                />
-              </NFormItem>
               <NFormItem label="年级" :show-feedback="false" class="mistake-edit__item mistake-edit__item--inline" label-placement="top">
                 <NSelect
                   v-model:value="gradeLevelId"
@@ -212,18 +313,40 @@ async function save() {
                   class="mistake-edit__select"
                   placeholder="请选择年级"
                   :options="gradeOptions"
+                  @update:value="(v) => void loadSubjectsForGrade(v)"
+                />
+              </NFormItem>
+              <NFormItem label="科目" :show-feedback="false" class="mistake-edit__item mistake-edit__item--inline" label-placement="top">
+                <NSelect
+                  v-model:value="subjectId"
+                  size="small"
+                  class="mistake-edit__select"
+                  placeholder="请选择科目"
+                  :options="subjectOptions"
+                  :disabled="!gradeLevelId"
                 />
               </NFormItem>
             </div>
 
+            <NFormItem label="掌握状态" :show-feedback="false" class="mistake-edit__item" label-placement="top">
+              <NSwitch v-model:value="isMastered">
+                <template #checked>已掌握</template>
+                <template #unchecked>未掌握</template>
+              </NSwitch>
+            </NFormItem>
+
+            <NFormItem label="知识点标签" :show-feedback="false" class="mistake-edit__item" label-placement="top">
+              <NDynamicTags v-model:value="knowledgeTags" size="small" :max="6" placeholder="回车添加标签" />
+            </NFormItem>
+
             <NFormItem label="题干" :show-feedback="false" class="mistake-edit__item" label-placement="top">
               <NSpace vertical :size="8" style="width: 100%">
-                <NInput
-                  v-model:value="stem"
-                  type="textarea"
-                  size="small"
-                  placeholder="题目正文"
-                  :autosize="{ minRows: 4, maxRows: 14 }"
+                <AnalysisField
+                  v-model="stem"
+                  variant="stem"
+                  :min-rows="4"
+                  :max-rows="14"
+                  empty-text="请填写题干"
                 />
                 <NButton
                   size="small"
@@ -238,12 +361,9 @@ async function save() {
             </NFormItem>
 
             <NFormItem label="解题思路" :show-feedback="false" class="mistake-edit__item" label-placement="top">
-              <NInput
-                v-model:value="analysis"
-                type="textarea"
-                size="small"
-                placeholder="解题步骤与思路"
-                :autosize="{ minRows: 4, maxRows: 14 }"
+              <AnalysisField
+                v-model="analysis"
+                empty-text="暂无解题思路，可根据题干重新生成"
               />
             </NFormItem>
 
@@ -256,23 +376,20 @@ async function save() {
                 :autosize="{ minRows: 2, maxRows: 10 }"
               />
             </NFormItem>
-
-            <footer class="mistake-edit__footer">
-              <NButton class="mistake-edit__footer-btn" size="small" @click="router.push(`/mistakes/${id}`)">取消</NButton>
-              <NButton
-                class="mistake-edit__footer-btn"
-                type="primary"
-                size="small"
-                :loading="saving"
-                :disabled="solvingStem"
-                @click="save"
-              >
-                保存修改
-              </NButton>
-            </footer>
           </NSpace>
         </NSpin>
       </NCard>
+
+      <Teleport to="body">
+        <footer class="app-actions app-actions--bar app-actions--fixed">
+          <div class="app-actions--fixed-inner">
+            <NButton size="small" @click="router.push(`/mistakes/${id}`)">取消</NButton>
+            <NButton type="primary" size="small" :loading="saving" :disabled="solvingStem" @click="save">
+              保存修改
+            </NButton>
+          </div>
+        </footer>
+      </Teleport>
     </div>
   </NSpin>
 </template>
@@ -298,6 +415,18 @@ async function save() {
   display: inline-block;
   width: 100%;
   max-width: 520px;
+}
+
+.mistake-edit__image-wrap--dragover {
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.55);
+  border-radius: 12px;
+}
+
+.mistake-edit__image-hint {
+  margin: 0 0 8px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--app-text-subtle, #64748b);
 }
 
 .mistake-edit__image {
@@ -364,31 +493,12 @@ async function save() {
   min-width: 0;
 }
 
-.mistake-edit__footer {
-  display: flex;
-  justify-content: flex-end;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 4px;
-  padding-top: 14px;
-  border-top: 1px solid var(--app-border);
-}
-
 @media (max-width: 768px) {
   .mistake-edit__meta {
     flex-direction: column;
   }
 
   .mistake-edit__item--inline {
-    width: 100%;
-  }
-
-  .mistake-edit__footer {
-    flex-direction: column-reverse;
-    align-items: stretch;
-  }
-
-  .mistake-edit__footer-btn {
     width: 100%;
   }
 }

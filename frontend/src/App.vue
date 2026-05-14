@@ -4,6 +4,7 @@ import { useRoute, useRouter } from "vue-router";
 import type { MenuOption } from "naive-ui";
 import { NIcon } from "naive-ui";
 import NavIcon from "./components/NavIcon.vue";
+import { fetchAppVersion } from "./api/client";
 import { useAuthStore } from "./stores/auth";
 import { themeOverrides } from "./naive-theme";
 
@@ -21,24 +22,32 @@ onMounted(() => {
   updateNarrow();
   window.addEventListener("resize", updateNarrow);
   void auth.fetchMe();
+  void fetchAppVersion()
+    .then((v) => {
+      if (v?.trim()) appVersion.value = v.trim();
+    })
+    .catch(() => {
+      /* 未登录或离线时保留构建时版本 */
+    });
 });
 onUnmounted(() => window.removeEventListener("resize", updateNarrow));
 
 const drawerOpen = ref(false);
+const appVersion = ref(import.meta.env.VITE_APP_VERSION?.trim() || "dev");
 
 const drawerWidth = computed(() => Math.min(320, Math.round(windowWidth.value * 0.88)));
 
 type NavItem = {
   label: string;
   key: string;
-  icon: "book" | "subject" | "grade" | "ai" | "users";
+  icon: "book" | "subject" | "grade" | "ai" | "users" | "stats";
 };
 
 const navItems = computed<NavItem[]>(() => {
   const items: NavItem[] = [
     { label: "错题本", key: "/mistakes", icon: "book" },
-    { label: "科目", key: "/subjects", icon: "subject" },
-    { label: "年级", key: "/grades", icon: "grade" },
+    { label: "统计", key: "/stats", icon: "stats" },
+    { label: "年级科目", key: "/grade-subjects", icon: "subject" },
     { label: "AI 设置", key: "/settings/ai", icon: "ai" },
   ];
   if (auth.me?.is_admin) {
@@ -58,6 +67,7 @@ const menuOptions = computed<MenuOption[]>(() =>
 const activeKey = computed(() => {
   const p = route.path;
   if (p.startsWith("/mistakes")) return "/mistakes";
+  if (p.startsWith("/stats")) return "/stats";
   if (p.startsWith("/admin")) return p;
   return p;
 });
@@ -85,7 +95,7 @@ function logout() {
       <NDialogProvider>
         <RouterView v-if="route.path === '/login'" />
         <template v-else>
-          <NLayout style="min-height: 100vh; background: transparent">
+          <NLayout class="app-shell" style="background: transparent">
             <NLayoutHeader
               class="app-header"
               bordered
@@ -95,6 +105,7 @@ function logout() {
                 <div class="app-brand">
                   <div class="app-brand__mark">错</div>
                   <div class="app-brand__text">AI 错题本</div>
+                  <span v-if="appVersion" class="app-version" :title="`版本 ${appVersion}`">v{{ appVersion }}</span>
                   <NMenu
                     v-if="!narrow && auth.isLoggedIn"
                     mode="horizontal"
@@ -122,7 +133,7 @@ function logout() {
                 </NSpace>
               </div>
             </NLayoutHeader>
-            <NLayoutContent class="app-content" native-scrollbar>
+            <NLayoutContent class="app-content" :native-scrollbar="false">
               <RouterView :key="route.fullPath" />
             </NLayoutContent>
           </NLayout>
@@ -167,6 +178,7 @@ function logout() {
                 </nav>
 
                 <div class="app-nav-drawer__footer">
+                  <p v-if="appVersion" class="app-nav-drawer__version">版本 v{{ appVersion }}</p>
                   <NButton class="app-nav-drawer__logout" block secondary strong @click="logout">
                     <template #icon>
                       <NavIcon name="logout" />

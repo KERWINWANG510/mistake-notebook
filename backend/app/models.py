@@ -51,16 +51,17 @@ class Subject(Base):
     )
 
     mistakes: Mapped[list["Mistake"]] = relationship(back_populates="subject")
+    grade_subjects: Mapped[list["GradeSubject"]] = relationship(back_populates="subject")
 
 
 class GradeLevel(Base):
-    """年级：一至九年级。"""
+    """年级：一至九年级与高一至高三（均为内置）。"""
 
     __tablename__ = "grade_levels"
     __table_args__ = (UniqueConstraint("level", name="uq_grade_level"),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
-    level: Mapped[int] = mapped_column(Integer, nullable=False, comment="年级数字 1-9")
+    level: Mapped[int] = mapped_column(Integer, nullable=False, comment="年级数字 1-12（10-12 为高一至高三）")
     name: Mapped[str] = mapped_column(String(32), nullable=False, comment="展示名称，如「一年级」")
     is_builtin: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, comment="是否内置")
     sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False, comment="排序")
@@ -70,6 +71,28 @@ class GradeLevel(Base):
     )
 
     mistakes: Mapped[list["Mistake"]] = relationship(back_populates="grade")
+    grade_subjects: Mapped[list["GradeSubject"]] = relationship(back_populates="grade")
+
+
+class GradeSubject(Base):
+    """年级与开设科目的对应关系。"""
+
+    __tablename__ = "grade_subjects"
+    __table_args__ = (UniqueConstraint("grade_level_id", "subject_id", name="uq_grade_subject"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    grade_level_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("grade_levels.id"), nullable=False, comment="年级 ID"
+    )
+    subject_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("subjects.id"), nullable=False, comment="科目 ID"
+    )
+    sort_order: Mapped[int] = mapped_column(
+        Integer, default=0, nullable=False, comment="该年级下科目排序，越小越靠前"
+    )
+
+    grade: Mapped["GradeLevel"] = relationship(back_populates="grade_subjects")
+    subject: Mapped["Subject"] = relationship(back_populates="grade_subjects")
 
 
 class Mistake(Base):
@@ -89,6 +112,12 @@ class Mistake(Base):
     analysis: Mapped[str] = mapped_column(Text, default="", nullable=False, comment="解题思路")
     answer: Mapped[str] = mapped_column(Text, default="", nullable=False, comment="最终答案")
     image_path: Mapped[str | None] = mapped_column(String(512), nullable=True, comment="原始图片相对 uploads 的路径")
+    is_mastered: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False, comment="是否已掌握"
+    )
+    knowledge_tags: Mapped[list[str]] = mapped_column(
+        JSON, default=lambda: [], nullable=False, comment="知识点标签 JSON 数组"
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False

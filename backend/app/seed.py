@@ -3,7 +3,7 @@
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import AiProviderPreset, GradeLevel, Subject, User
+from app.models import AiProviderPreset, GradeLevel, GradeSubject, Mistake, Subject, User
 from app.services.password import hash_password
 
 
@@ -86,6 +86,52 @@ BUILTIN_SUBJECTS: list[tuple[str, str, int]] = [
     ("语文", "chinese", 1),
     ("数学", "math", 2),
     ("英语", "english", 3),
+    ("政治", "politics", 4),
+    ("历史", "history", 5),
+    ("地理", "geography", 6),
+    ("物理", "physics", 7),
+    ("化学", "chemistry", 8),
+    ("生物", "biology", 9),
+]
+
+
+def builtin_subject_codes_for_level(level: int) -> list[str]:
+    """按中国大陆 K12 常见课表返回各年级重要科目编码。
+
+    - 小学 1–6：语数英
+    - 初中 7：语数英 + 政史地 + 生物
+    - 初中 8：+ 物理
+    - 初中 9：+ 化学
+    - 高中 10–12：语数英 + 政史地 + 理化生
+    """
+    base = ["chinese", "math", "english"]
+    if 1 <= level <= 6:
+        return base
+    if 7 <= level <= 9:
+        codes = base + ["politics", "history", "geography", "biology"]
+        if level >= 8:
+            codes.append("physics")
+        if level >= 9:
+            codes.append("chemistry")
+        return codes
+    if 10 <= level <= 12:
+        return base + ["politics", "history", "geography", "physics", "chemistry", "biology"]
+    return base
+
+
+def _num_cn(n: int) -> str:
+    m = ["零", "一", "二", "三", "四", "五", "六", "七", "八", "九"]
+    if 1 <= n <= 9:
+        return m[n]
+    return str(n)
+
+
+# (level, 展示名, sort_order)
+BUILTIN_GRADES: list[tuple[int, str, int]] = [
+    *((lv, f"{_num_cn(lv)}年级", lv) for lv in range(1, 10)),
+    (10, "高一", 10),
+    (11, "高二", 11),
+    (12, "高三", 12),
 ]
 
 
@@ -104,20 +150,82 @@ async def run_seed(session: AsyncSession) -> None:
 
     result = await session.execute(select(GradeLevel).limit(1))
     if result.scalar_one_or_none() is None:
-        for lv in range(1, 10):
-            session.add(
-                GradeLevel(level=lv, name=f"{_num_cn(lv)}年级", is_builtin=True, sort_order=lv)
-            )
+        for level, name, order in BUILTIN_GRADES:
+            session.add(GradeLevel(level=level, name=name, is_builtin=True, sort_order=order))
         await session.flush()
 
     await session.commit()
 
 
-def _num_cn(n: int) -> str:
-    m = ["零", "一", "二", "三", "四", "五", "六", "七", "八", "九"]
-    if 1 <= n <= 9:
-        return m[n]
-    return str(n)
+async def ensure_builtin_subjects(session: AsyncSession) -> None:
+    """确保内置重要科目齐全（语数英、政史地、理化生）。"""
+    for name, code, order in BUILTIN_SUBJECTS:
+        result = await session.execute(select(Subject).where(Subject.code == code))
+        row = result.scalar_one_or_none()
+        if row is None:
+            session.add(Subject(name=name, code=code, is_builtin=True, sort_order=order))
+        else:
+            row.name = name
+            row.sort_order = order
+            row.is_builtin = True
+    await session.flush()
+
+
+async def ensure_grade_subject_mappings(session: AsyncSession) -> None:
+    """按年级课表同步 grade_subjects 映射。"""
+    await ensure_builtin_subjects(session)
+    grades = (await session.execute(select(GradeLevel).order_by(GradeLevel.level))).scalars().all()
+    subjects = (await session.execute(select(Subject))).scalars().all()
+    code_to_id = {s.code: s.id for s in subjects if s.code}
+
+    for grade in grades:
+        codes = builtin_subject_codes_for_level(grade.level)
+        for idx, code in enumerate(codes):
+            subject_id = code_to_id.get(code)
+            if not subject_id:
+                continue
+            result = await session.execute(
+                select(GradeSubject).where(
+                    GradeSubject.grade_level_id == grade.id,
+                    GradeSubject.subject_id == subject_id,
+                )
+            )
+            row = result.scalar_one_or_none()
+            if row is None:
+                session.add(
+                    GradeSubject(
+                        grade_level_id=grade.id,
+                        subject_id=subject_id,
+                        sort_order=idx + 1,
+                    )
+                )
+            else:
+                row.sort_order = idx + 1
+
+    await session.commit()
+
+
+async def ensure_builtin_grades(session: AsyncSession) -> None:
+    """确保一至九年级与高一至高三存在，且均为内置；清理无错题引用的自定义年级。"""
+    for level, name, order in BUILTIN_GRADES:
+        result = await session.execute(select(GradeLevel).where(GradeLevel.level == level))
+        row = result.scalar_one_or_none()
+        if row is None:
+            session.add(GradeLevel(level=level, name=name, is_builtin=True, sort_order=order))
+        else:
+            row.name = name
+            row.sort_order = order
+            row.is_builtin = True
+
+    await session.flush()
+
+    custom = await session.execute(select(GradeLevel).where(GradeLevel.is_builtin.is_(False)))
+    for row in custom.scalars().all():
+        used = await session.execute(select(Mistake).where(Mistake.grade_level_id == row.id).limit(1))
+        if used.scalar_one_or_none() is None:
+            session.delete(row)
+
+    await session.commit()
 
 
 async def ensure_missing_presets(session: AsyncSession) -> None:

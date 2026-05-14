@@ -588,10 +588,10 @@ function openEdit(r: AiConfig) {
           style="width: 100%"
         />
 
-        <NSpace justify="end">
+        <div class="app-actions">
           <NButton @click="showModal = false">关闭</NButton>
           <NButton type="primary" :loading="saving" @click="saveDraft">保存</NButton>
-        </NSpace>
+        </div>
       </NSpace>
     </NModal>
   </NSpace>

@@ -32,6 +32,15 @@ class UserCreateBody(BaseModel):
     enrollment_year: int = Field(..., ge=1980, le=2050)
 
 
+class UserUpdateBody(BaseModel):
+    username: str | None = Field(None, min_length=2, max_length=64)
+    password: str | None = Field(None, min_length=4, max_length=128)
+    full_name: str | None = Field(None, min_length=1, max_length=64)
+    education_stage: EducationStageCode | None = None
+    enrollment_year: int | None = Field(None, ge=1980, le=2050)
+    is_admin: bool | None = None
+
+
 class EducationStageOut(BaseModel):
     code: str
     name: str
@@ -84,6 +93,21 @@ class GradeUpdate(BaseModel):
     sort_order: int | None = None
 
 
+class GradeSubjectBrief(BaseModel):
+    id: str
+    name: str
+    code: str | None
+    sort_order: int
+
+
+class GradeWithSubjectsOut(BaseModel):
+    id: str
+    level: int
+    name: str
+    sort_order: int
+    subjects: list[GradeSubjectBrief]
+
+
 class MistakeOut(BaseModel):
     id: str
     subject_id: str
@@ -92,6 +116,8 @@ class MistakeOut(BaseModel):
     analysis: str
     answer: str
     image_path: str | None
+    is_mastered: bool = False
+    knowledge_tags: list[str] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
     subject_name: str | None = None
@@ -114,6 +140,50 @@ class MistakeUpdate(BaseModel):
     stem: str | None = None
     analysis: str | None = None
     answer: str | None = None
+    is_mastered: bool | None = None
+    knowledge_tags: list[str] | None = None
+
+
+class KnowledgeTagCount(BaseModel):
+    tag: str
+    count: int
+
+
+class MistakeStatsGradeRow(BaseModel):
+    grade_level_id: str
+    grade_name: str
+    level: int
+    mistake_count: int
+
+
+class MistakeStatsSubjectRow(BaseModel):
+    subject_id: str
+    subject_name: str
+    mistake_count: int
+
+
+class MistakeStatsTagRow(BaseModel):
+    tag: str
+    mistake_count: int
+
+
+class MistakeStatsOverview(BaseModel):
+    """错题统计总览：汇总指标 + 分维度分布。"""
+
+    total_mistake_count: int = Field(description="累计错题数量（含已掌握与未掌握）")
+    mastered_count: int = Field(description="已掌握错题数量")
+    mastery_rate_percent: float = Field(description="掌握率（已掌握/累计×100；无错题时为 0）")
+    by_grade: list[MistakeStatsGradeRow]
+    by_subject: list[MistakeStatsSubjectRow]
+    by_tag: list[MistakeStatsTagRow]
+
+
+class SubjectMistakeSummary(BaseModel):
+    subject_id: str
+    subject_name: str
+    subject_code: str | None = None
+    mistake_count: int
+    knowledge_tags: list[KnowledgeTagCount] = Field(default_factory=list)
 
 
 class AiPresetOut(BaseModel):
@@ -212,7 +282,8 @@ class AnalyzeResult(BaseModel):
     analysis: str
     answer: str
     suggested_subject_code: str | None = None
-    suggested_grade_level: int | None = Field(None, ge=1, le=9)
+    suggested_grade_level: int | None = Field(None, ge=1, le=12)
+    knowledge_tags: list[str] = Field(default_factory=list)
 
 
 class SolveSuggestResult(BaseModel):
@@ -221,7 +292,8 @@ class SolveSuggestResult(BaseModel):
     analysis: str = ""
     answer: str = ""
     suggested_subject_code: str | None = None
-    suggested_grade_level: int | None = Field(None, ge=1, le=9)
+    suggested_grade_level: int | None = Field(None, ge=1, le=12)
+    knowledge_tags: list[str] = Field(default_factory=list)
 
 
 class OcrStemResult(BaseModel):
@@ -230,3 +302,26 @@ class OcrStemResult(BaseModel):
 
 class SolveFromStemBody(BaseModel):
     stem: str = Field(..., min_length=1, max_length=20000)
+    subject_code: str | None = Field(None, max_length=32)
+    grade_level: int | None = Field(None, ge=1, le=12)
+
+
+PracticeDifficulty = Literal["easy", "medium", "hard", "challenge"]
+
+
+class PracticeGenerateBody(BaseModel):
+    mistake_id: str = Field(..., min_length=1, max_length=64)
+    difficulty: PracticeDifficulty
+
+
+class PracticeGenerateResult(BaseModel):
+    question_stem: str
+    reference_answer: str
+    reference_analysis: str
+
+
+class PracticeCheckResult(BaseModel):
+    verdict: str
+    feedback: str
+    standard_answer: str
+    explanation: str
