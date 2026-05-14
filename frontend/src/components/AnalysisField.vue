@@ -8,6 +8,8 @@ defineProps<{
   minRows?: number;
   maxRows?: number;
   placeholder?: string;
+  /** 与 FormattedAnalysis 一致；题干请传 stem */
+  variant?: "analysis" | "stem";
 }>();
 
 const model = defineModel<string>({ default: "" });
@@ -43,11 +45,20 @@ const mode = ref<"edit" | "preview">("preview");
       v-model:value="model"
       type="textarea"
       size="small"
-      :placeholder="placeholder ?? '解题思路，支持 **加粗** 与列表'"
+      :placeholder="
+        placeholder ??
+        (variant === 'stem'
+          ? '题干，支持 **加粗**、分段与 <u>下划线</u>'
+          : '解题思路，支持 **加粗** 与列表')
+      "
       :autosize="{ minRows: minRows ?? 6, maxRows: maxRows ?? 18 }"
     />
     <div v-else class="formatted-analysis--panel formatted-analysis--panel--fill">
-      <FormattedAnalysis :text="model" :empty-text="emptyText ?? '暂无解题思路'" />
+      <FormattedAnalysis
+        :text="model"
+        :variant="variant ?? 'analysis'"
+        :empty-text="emptyText ?? (variant === 'stem' ? '暂无题干' : '暂无解题思路')"
+      />
     </div>
   </div>
 </template>

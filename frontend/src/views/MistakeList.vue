@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { NButton, NDropdown, NEllipsis, NPopconfirm, NSelect, NSpin, NTag, useMessage } from "naive-ui";
+import { NButton, NDropdown, NPopconfirm, NSelect, NSpin, NTag, useMessage } from "naive-ui";
+import FormattedAnalysis from "../components/FormattedAnalysis.vue";
 import type { DropdownOption } from "naive-ui";
 import type { Grade, Mistake, SubjectMistakeSummary } from "../api/client";
 import { deleteMistake, fetchGrades, fetchMistakes, fetchSubjectMistakeSummary } from "../api/client";
@@ -435,7 +436,9 @@ function formatDate(iso: string) {
                 <span v-if="m.image_path" class="mistake-tile__has-img">含配图</span>
               </div>
             </div>
-            <NEllipsis :line-clamp="4" class="mistake-tile__stem">{{ m.stem }}</NEllipsis>
+            <div class="mistake-tile__stem mistake-tile__stem--formatted">
+              <FormattedAnalysis :text="m.stem" variant="stem" empty-text="—" />
+            </div>
             <div v-if="m.knowledge_tags?.length" class="mistake-tile__tags">
               <NTag v-for="t in m.knowledge_tags" :key="t" size="tiny" :bordered="false">{{ t }}</NTag>
             </div>
@@ -756,6 +759,25 @@ function formatDate(iso: string) {
   font-size: 14px;
   line-height: 1.6;
   color: #334155;
+}
+
+.mistake-tile__stem--formatted {
+  max-height: calc(1.55em * 4 + 12px);
+  overflow: hidden;
+}
+
+.mistake-tile__stem--formatted :deep(.formatted-analysis) {
+  font-size: 14px;
+  line-height: 1.55;
+  color: #334155;
+}
+
+.mistake-tile__stem--formatted :deep(.formatted-analysis p) {
+  margin: 0 0 4px;
+}
+
+.mistake-tile__stem--formatted :deep(.formatted-analysis p:last-child) {
+  margin-bottom: 0;
 }
 
 .mistake-hub__empty {

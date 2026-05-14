@@ -1,4 +1,4 @@
-import { http } from "./http";
+import { apiBase, getStoredToken, http } from "./http";
 
 export type MeUser = {
   id: string;
@@ -146,6 +146,22 @@ export type AnalyzeResult = {
   knowledge_tags: string[];
 };
 
+/** 错题图片流式识别：NDJSON 行事件（与后端 /api/analyze/stream 一致） */
+export type AnalyzeStreamEvent =
+  | { type: "phase"; phase: "ocr" | "layout" | "solve"; label: string }
+  | { type: "delta"; phase: "ocr" | "solve"; text: string }
+  | { type: "stem"; text: string }
+  | {
+      type: "done";
+      stem: string;
+      analysis: string;
+      answer: string;
+      suggested_subject_code: string | null;
+      suggested_grade_level: number | null;
+      knowledge_tags: string[];
+    }
+  | { type: "error"; message: string };
+
 export type SolveSuggestResult = {
   analysis: string;
   answer: string;
@@ -222,10 +238,12 @@ export async function fetchMistake(id: string) {
 
 export async function analyzeImage(
   file: File,
-  opts?: { model?: string; model_vision?: string; model_solve?: string },
+  opts?: { model?: string; model_vision?: string; model_solve?: string; ocr_hint?: string },
 ) {
   const fd = new FormData();
   fd.append("file", file);
+  const hint = opts?.ocr_hint?.trim();
+  if (hint) fd.append("ocr_hint", hint);
   const params: Record<string, string> = {};
   if (opts?.model) params.model = opts.model;
   if (opts?.model_vision) params.model_vision = opts.model_vision;
@@ -234,6 +252,107 @@ export async function analyzeImage(
     params: Object.keys(params).length ? params : undefined,
   });
   return data;
+}
+
+/**
+ * 流式识别题目图片：通过 onEvent 推送阶段与增量文本，解析完成后返回与 {@link analyzeImage} 相同结构的结果。
+ */
+export async function analyzeImageStream(
+  file: File,
+  onEvent: (ev: AnalyzeStreamEvent) => void,
+  opts?: { model?: string; model_vision?: string; model_solve?: string; ocr_hint?: string },
+  signal?: AbortSignal,
+): Promise<AnalyzeResult> {
+  const fd = new FormData();
+  fd.append("file", file);
+  const hint = opts?.ocr_hint?.trim();
+  if (hint) fd.append("ocr_hint", hint);
+  const qs = new URLSearchParams();
+  if (opts?.model) qs.set("model", opts.model);
+  if (opts?.model_vision) qs.set("model_vision", opts.model_vision);
+  if (opts?.model_solve) qs.set("model_solve", opts.model_solve);
+  const q = qs.toString();
+  const base = apiBase.replace(/\/$/, "");
+  const url = `${base}/api/analyze/stream${q ? `?${q}` : ""}`;
+  const headers: Record<string, string> = {};
+  const token = getStoredToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const res = await fetch(url, {
+    method: "POST",
+    body: fd,
+    headers,
+    signal,
+  });
+
+  if (!res.ok) {
+    const raw = await res.text();
+    let msg = `识别请求失败（HTTP ${res.status}）`;
+    try {
+      const j = JSON.parse(raw) as { detail?: unknown };
+      const d = j.detail;
+      if (typeof d === "string") msg = d;
+      else if (Array.isArray(d))
+        msg = d.map((x: { msg?: string }) => x.msg ?? JSON.stringify(x)).join("；");
+    } catch {
+      if (raw.trim()) msg = raw.slice(0, 500);
+    }
+    throw new Error(msg);
+  }
+
+  const reader = res.body?.getReader();
+  if (!reader) throw new Error("无法读取识别响应流");
+
+  const dec = new TextDecoder();
+  let buf = "";
+  let result: AnalyzeResult | null = null;
+
+  const handleLine = (line: string) => {
+    const t = line.trim();
+    if (!t) return;
+    let ev: AnalyzeStreamEvent;
+    try {
+      ev = JSON.parse(t) as AnalyzeStreamEvent;
+    } catch {
+      return;
+    }
+    onEvent(ev);
+    if (ev.type === "error") {
+      throw new Error(ev.message);
+    }
+    if (ev.type === "done") {
+      result = {
+        stem: ev.stem,
+        analysis: ev.analysis,
+        answer: ev.answer,
+        suggested_subject_code: ev.suggested_subject_code,
+        suggested_grade_level: ev.suggested_grade_level,
+        knowledge_tags: ev.knowledge_tags ?? [],
+      };
+    }
+  };
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    const lines = buf.split("\n");
+    buf = lines.pop() ?? "";
+    for (const line of lines) {
+      handleLine(line);
+    }
+  }
+  const tail = buf + dec.decode();
+  if (tail.trim()) {
+    for (const line of tail.split("\n")) {
+      handleLine(line);
+    }
+  }
+
+  if (!result) {
+    throw new Error("连接已结束但未收到完整识别结果");
+  }
+  return result;
 }
 
 export async function solveFromStem(

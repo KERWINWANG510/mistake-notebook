@@ -213,7 +213,9 @@ async function addToNotebook() {
 
             <section v-if="question" class="practice__section">
               <h2 class="practice__section-title">练习题</h2>
-              <div class="practice__question">{{ question.question_stem }}</div>
+              <div class="practice__question">
+                <FormattedAnalysis :text="question.question_stem" variant="stem" empty-text="—" />
+              </div>
             </section>
 
             <section v-if="question && !checkResult" class="practice__section">

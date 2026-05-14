@@ -404,6 +404,12 @@ body {
   word-break: break-word;
 }
 
+/* 题干：优先在空格/换行处分行，减少英文单词被拦腰折断 */
+.formatted-analysis--stem {
+  word-break: normal;
+  overflow-wrap: break-word;
+}
+
 .formatted-analysis p {
   margin: 0 0 10px;
 }
@@ -415,6 +421,13 @@ body {
 .formatted-analysis strong {
   color: #0f172a;
   font-weight: 600;
+}
+
+.formatted-analysis u {
+  display: inline;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-thickness: from-font;
 }
 
 .formatted-analysis .analysis-step {

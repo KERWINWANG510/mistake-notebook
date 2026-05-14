@@ -99,11 +99,71 @@ onBeforeUnmount(() => {
   if (imageObjectUrl.value) URL.revokeObjectURL(imageObjectUrl.value);
 });
 
-async function onReplaceImage(e: Event) {
-  const input = e.target as HTMLInputElement;
-  const f = input.files?.[0];
-  input.value = "";
-  if (!f) return;
+/** 从拖拽数据中取第一张图片文件 */
+function pickFirstImageFile(dt: DataTransfer | null): File | null {
+  if (!dt) return null;
+  const list = dt.files;
+  if (list?.length) {
+    for (let i = 0; i < list.length; i++) {
+      const file = list[i];
+      if (file.type.startsWith("image/")) return file;
+    }
+  }
+  const items = dt.items;
+  if (items?.length) {
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
+      if (it.kind === "file") {
+        const file = it.getAsFile();
+        if (file?.type.startsWith("image/")) return file;
+      }
+    }
+  }
+  return null;
+}
+
+const imageDropActive = ref(false);
+
+function onReplaceImageDragOver(e: DragEvent) {
+  e.preventDefault();
+  if (e.dataTransfer) {
+    e.dataTransfer.dropEffect = uploading.value || solvingStem.value ? "none" : "copy";
+  }
+}
+
+function onReplaceImageDragEnter(e: DragEvent) {
+  if (uploading.value || solvingStem.value) return;
+  e.preventDefault();
+  imageDropActive.value = true;
+}
+
+function onReplaceImageDragLeave(e: DragEvent) {
+  const root = e.currentTarget as HTMLElement;
+  const rel = e.relatedTarget as Node | null;
+  if (rel && root.contains(rel)) return;
+  imageDropActive.value = false;
+}
+
+async function onReplaceImageDrop(e: DragEvent) {
+  e.preventDefault();
+  imageDropActive.value = false;
+  if (uploading.value || solvingStem.value) {
+    message.warning("请等待当前操作完成后再上传图片");
+    return;
+  }
+  const f = pickFirstImageFile(e.dataTransfer);
+  if (!f) {
+    message.warning("请拖拽图片文件（如 JPG、PNG）到此处");
+    return;
+  }
+  await applyReplaceImageFile(f);
+}
+
+async function applyReplaceImageFile(f: File) {
+  if (!f.type.startsWith("image/")) {
+    message.warning("请上传图片文件（如 JPG、PNG、WebP）");
+    return;
+  }
   uploading.value = true;
   try {
     await replaceMistakeImage(id.value, f);
@@ -114,6 +174,14 @@ async function onReplaceImage(e: Event) {
   } finally {
     uploading.value = false;
   }
+}
+
+async function onReplaceImage(e: Event) {
+  const input = e.target as HTMLInputElement;
+  const f = input.files?.[0];
+  input.value = "";
+  if (!f) return;
+  await applyReplaceImageFile(f);
 }
 
 function triggerReplaceImage() {
@@ -208,7 +276,15 @@ async function save() {
           <NSpace vertical :size="14" style="width: 100%">
             <section v-if="row.image_path || imageObjectUrl" class="mistake-edit__section">
               <h2 class="mistake-edit__section-title">题目图片</h2>
-              <div class="mistake-edit__image-wrap">
+              <p class="mistake-edit__image-hint">支持点击「编辑配图」或将图片拖入下方预览区域更换。</p>
+              <div
+                class="mistake-edit__image-wrap"
+                :class="{ 'mistake-edit__image-wrap--dragover': imageDropActive }"
+                @dragenter.prevent="onReplaceImageDragEnter"
+                @dragover.prevent="onReplaceImageDragOver"
+                @dragleave.prevent="onReplaceImageDragLeave"
+                @drop.prevent="onReplaceImageDrop"
+              >
                 <NImage
                   v-if="imageObjectUrl"
                   width="100%"
@@ -265,12 +341,12 @@ async function save() {
 
             <NFormItem label="题干" :show-feedback="false" class="mistake-edit__item" label-placement="top">
               <NSpace vertical :size="8" style="width: 100%">
-                <NInput
-                  v-model:value="stem"
-                  type="textarea"
-                  size="small"
-                  placeholder="题目正文"
-                  :autosize="{ minRows: 4, maxRows: 14 }"
+                <AnalysisField
+                  v-model="stem"
+                  variant="stem"
+                  :min-rows="4"
+                  :max-rows="14"
+                  empty-text="请填写题干"
                 />
                 <NButton
                   size="small"
@@ -339,6 +415,18 @@ async function save() {
   display: inline-block;
   width: 100%;
   max-width: 520px;
+}
+
+.mistake-edit__image-wrap--dragover {
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.55);
+  border-radius: 12px;
+}
+
+.mistake-edit__image-hint {
+  margin: 0 0 8px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--app-text-subtle, #64748b);
 }
 
 .mistake-edit__image {

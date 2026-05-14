@@ -1,5 +1,7 @@
 """调用 OpenAI 兼容接口：模型列表与对话。"""
 
+import json
+from collections.abc import AsyncIterator
 from typing import Any
 
 import httpx
@@ -98,3 +100,66 @@ async def chat_completion(
     if not isinstance(content, str):
         return False, "响应内容格式异常", None
     return True, content, body
+
+
+class UpstreamChatError(Exception):
+    """上游对话接口返回错误（非 200 或无法解析流）。"""
+
+    def __init__(self, message: str):
+        self.message = message
+        super().__init__(message)
+
+
+async def chat_completion_stream(
+    base_url: str,
+    chat_path: str,
+    api_key: str | None,
+    model: str,
+    messages: list[dict[str, Any]],
+    temperature: float = 0.2,
+) -> AsyncIterator[str]:
+    """调用上游 chat.completions 流式接口，逐段产出文本 delta（不含 JSON 封装）。"""
+    url = join_url(base_url, chat_path)
+    headers: dict[str, str] = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    payload: dict[str, Any] = {
+        "model": model,
+        "messages": messages,
+        "temperature": temperature,
+        "stream": True,
+    }
+    timeout = httpx.Timeout(180.0, connect=30.0)
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        async with client.stream("POST", url, headers=headers, json=payload) as r:
+            if r.status_code != 200:
+                err_body = (await r.aread()).decode("utf-8", errors="replace")[:4000]
+                raise UpstreamChatError(f"上游错误 {r.status_code}: {err_body}")
+
+            async for line in r.aiter_lines():
+                if line is None:
+                    continue
+                s = line.strip()
+                if not s:
+                    continue
+                if not s.startswith("data:"):
+                    continue
+                payload_str = s[5:].lstrip()
+                if payload_str == "[DONE]":
+                    break
+                try:
+                    chunk = json.loads(payload_str)
+                except json.JSONDecodeError:
+                    continue
+                choices = chunk.get("choices")
+                if not choices or not isinstance(choices, list):
+                    continue
+                first = choices[0] if choices else None
+                if not isinstance(first, dict):
+                    continue
+                delta = first.get("delta")
+                if not isinstance(delta, dict):
+                    continue
+                content = delta.get("content")
+                if isinstance(content, str) and content:
+                    yield content

@@ -105,7 +105,9 @@ async function markMastered() {
 
           <section class="mistake-detail__section">
             <h2 class="mistake-detail__section-title">题干</h2>
-            <div class="mistake-detail__text">{{ row.stem }}</div>
+            <div class="mistake-detail__text mistake-detail__text--analysis">
+              <FormattedAnalysis :text="row.stem" variant="stem" empty-text="—" />
+            </div>
           </section>
 
           <section class="mistake-detail__section">
