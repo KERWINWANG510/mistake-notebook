@@ -4,6 +4,7 @@ import { useRoute, useRouter } from "vue-router";
 import type { MenuOption } from "naive-ui";
 import { NIcon } from "naive-ui";
 import NavIcon from "./components/NavIcon.vue";
+import { fetchAppVersion } from "./api/client";
 import { useAuthStore } from "./stores/auth";
 import { themeOverrides } from "./naive-theme";
 
@@ -21,10 +22,18 @@ onMounted(() => {
   updateNarrow();
   window.addEventListener("resize", updateNarrow);
   void auth.fetchMe();
+  void fetchAppVersion()
+    .then((v) => {
+      if (v?.trim()) appVersion.value = v.trim();
+    })
+    .catch(() => {
+      /* 未登录或离线时保留构建时版本 */
+    });
 });
 onUnmounted(() => window.removeEventListener("resize", updateNarrow));
 
 const drawerOpen = ref(false);
+const appVersion = ref(import.meta.env.VITE_APP_VERSION?.trim() || "dev");
 
 const drawerWidth = computed(() => Math.min(320, Math.round(windowWidth.value * 0.88)));
 
@@ -96,6 +105,7 @@ function logout() {
                 <div class="app-brand">
                   <div class="app-brand__mark">错</div>
                   <div class="app-brand__text">AI 错题本</div>
+                  <span v-if="appVersion" class="app-version" :title="`版本 ${appVersion}`">v{{ appVersion }}</span>
                   <NMenu
                     v-if="!narrow && auth.isLoggedIn"
                     mode="horizontal"
@@ -168,6 +178,7 @@ function logout() {
                 </nav>
 
                 <div class="app-nav-drawer__footer">
+                  <p v-if="appVersion" class="app-nav-drawer__version">版本 v{{ appVersion }}</p>
                   <NButton class="app-nav-drawer__logout" block secondary strong @click="logout">
                     <template #icon>
                       <NavIcon name="logout" />

@@ -12,6 +12,59 @@ from app.schemas import MistakeStatsGradeRow, MistakeStatsOverview, MistakeStats
 router = APIRouter(prefix="/api/stats", tags=["stats"])
 
 
+def _tag_stats_rows(
+    tag_rows: list,
+) -> list[MistakeStatsTagRow]:
+    return [MistakeStatsTagRow(tag=row.tag, mistake_count=int(row.cnt)) for row in tag_rows]
+
+
+async def _query_tag_stats(
+    db: AsyncSession,
+    user_id: str,
+    *,
+    subject_id: str | None = None,
+    grade_level_id: str | None = None,
+) -> list[MistakeStatsTagRow]:
+    """按用户汇总知识点标签；可选科目、年级筛选。"""
+    conditions = ["m.user_id = :uid", "LENGTH(TRIM(je.value)) > 0"]
+    params: dict[str, str] = {"uid": user_id}
+    if subject_id:
+        conditions.append("m.subject_id = :subject_id")
+        params["subject_id"] = subject_id
+    if grade_level_id:
+        conditions.append("m.grade_level_id = :grade_level_id")
+        params["grade_level_id"] = grade_level_id
+    where = " AND ".join(conditions)
+    tag_sql = text(
+        f"""
+        SELECT TRIM(je.value) AS tag, COUNT(*) AS cnt
+        FROM mistakes m, json_each(COALESCE(m.knowledge_tags, '[]')) AS je
+        WHERE {where}
+        GROUP BY TRIM(je.value)
+        ORDER BY cnt DESC, tag ASC
+        LIMIT 50
+        """
+    )
+    tag_rows = (await db.execute(tag_sql, params)).all()
+    return _tag_stats_rows(tag_rows)
+
+
+@router.get("/mistakes/tags", response_model=list[MistakeStatsTagRow])
+async def mistake_stats_tags(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    subject_id: str | None = None,
+    grade_level_id: str | None = None,
+) -> list[MistakeStatsTagRow]:
+    """按知识点标签汇总错题数；可按科目、年级筛选。"""
+    return await _query_tag_stats(
+        db,
+        user.id,
+        subject_id=subject_id,
+        grade_level_id=grade_level_id,
+    )
+
+
 @router.get("/mistakes", response_model=MistakeStatsOverview)
 async def mistake_stats_overview(
     user: User = Depends(get_current_user),
@@ -72,18 +125,8 @@ async def mistake_stats_overview(
         for row in subj_rows
     ]
 
-    tag_sql = text(
-        """
-        SELECT TRIM(je.value) AS tag, COUNT(*) AS cnt
-        FROM mistakes m, json_each(COALESCE(m.knowledge_tags, '[]')) AS je
-        WHERE m.user_id = :uid AND LENGTH(TRIM(je.value)) > 0
-        GROUP BY TRIM(je.value)
-        ORDER BY cnt DESC, tag ASC
-        LIMIT 50
-        """
-    )
-    tag_rows = (await db.execute(tag_sql, {"uid": user.id})).all()
-    by_tag = [MistakeStatsTagRow(tag=row.tag, mistake_count=int(row.cnt)) for row in tag_rows]
+    tag_rows = await _query_tag_stats(db, user.id)
+    by_tag = tag_rows
 
     return MistakeStatsOverview(
         total_mistake_count=total_mistake_count,

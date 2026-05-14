@@ -185,6 +185,11 @@ export type PracticeCheckResult = {
   explanation: string;
 };
 
+export async function fetchAppVersion() {
+  const { data } = await http.get<{ version: string }>("/api/version");
+  return data.version;
+}
+
 export async function fetchSubjects(params?: { grade_level_id?: string }) {
   const { data } = await http.get<Subject[]>("/api/subjects", { params });
   return data;
@@ -228,6 +233,14 @@ export async function fetchSubjectMistakeSummary(gradeLevelId: string) {
 
 export async function fetchMistakeStatsOverview() {
   const { data } = await http.get<MistakeStatsOverview>("/api/stats/mistakes");
+  return data;
+}
+
+export async function fetchMistakeStatsTags(params?: {
+  subject_id?: string;
+  grade_level_id?: string;
+}) {
+  const { data } = await http.get<MistakeStatsTagRow[]>("/api/stats/mistakes/tags", { params });
   return data;
 }
 

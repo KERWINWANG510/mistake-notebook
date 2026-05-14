@@ -3,13 +3,16 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.api
+      args:
+        APP_VERSION: ${APP_VERSION:-dev}
     ports:
       - "8000:8000"
     environment:
       APP_SECRET: ${APP_SECRET:-please-change-app-secret}
+      APP_VERSION: ${APP_VERSION:-dev}
       DATABASE_URL: sqlite+aiosqlite:////data/app.db
       UPLOAD_DIR: /data/uploads
-      CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173,http://localhost:8080
+      # CORS_ORIGINS: 逗号分隔白名单；不设置或留空则不限制跨域来源
     volumes:
       - mistake_data:/data
 
@@ -17,6 +20,8 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.web
+      args:
+        VITE_APP_VERSION: ${APP_VERSION:-dev}
     ports:
       - "8080:80"
     depends_on:
