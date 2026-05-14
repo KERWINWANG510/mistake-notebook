@@ -1,6 +1,6 @@
 <script setup lang="ts">
 defineProps<{
-  name: "book" | "subject" | "grade" | "ai" | "users" | "menu" | "logout";
+  name: "book" | "subject" | "grade" | "ai" | "users" | "stats" | "menu" | "logout";
 }>();
 </script>
 
@@ -39,6 +39,12 @@ defineProps<{
       <path d="M22 12h-4" />
       <path d="m19.07 4.93-2.83 2.83" />
       <circle cx="12" cy="12" r="3" />
+    </template>
+    <template v-else-if="name === 'stats'">
+      <path d="M4 19V5" />
+      <path d="M9 19V9" />
+      <path d="M14 19v-6" />
+      <path d="M19 19V8" />
     </template>
     <template v-else-if="name === 'users'">
       <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />

@@ -99,6 +99,7 @@ async function markMastered() {
               <NTag size="small">{{ row.grade_name ?? "—" }}</NTag>
               <NTag v-if="row.is_mastered" size="small" type="success">已掌握</NTag>
               <NTag v-else size="small">未掌握</NTag>
+              <NTag v-for="t in row.knowledge_tags ?? []" :key="t" size="small" type="info">{{ t }}</NTag>
             </NSpace>
           </section>
 

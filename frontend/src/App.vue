@@ -31,14 +31,14 @@ const drawerWidth = computed(() => Math.min(320, Math.round(windowWidth.value * 
 type NavItem = {
   label: string;
   key: string;
-  icon: "book" | "subject" | "grade" | "ai" | "users";
+  icon: "book" | "subject" | "grade" | "ai" | "users" | "stats";
 };
 
 const navItems = computed<NavItem[]>(() => {
   const items: NavItem[] = [
     { label: "错题本", key: "/mistakes", icon: "book" },
-    { label: "科目", key: "/subjects", icon: "subject" },
-    { label: "年级", key: "/grades", icon: "grade" },
+    { label: "统计", key: "/stats", icon: "stats" },
+    { label: "年级科目", key: "/grade-subjects", icon: "subject" },
     { label: "AI 设置", key: "/settings/ai", icon: "ai" },
   ];
   if (auth.me?.is_admin) {
@@ -58,6 +58,7 @@ const menuOptions = computed<MenuOption[]>(() =>
 const activeKey = computed(() => {
   const p = route.path;
   if (p.startsWith("/mistakes")) return "/mistakes";
+  if (p.startsWith("/stats")) return "/stats";
   if (p.startsWith("/admin")) return p;
   return p;
 });

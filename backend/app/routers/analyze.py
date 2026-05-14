@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
+from app.knowledge_tags import normalize_knowledge_tags
 from app.models import AiProviderConfig, Subject, User
 from app.routers.deps import get_current_user
 from app.schemas import AnalyzeResult, OcrStemResult, SolveFromStemBody, SolveSuggestResult
@@ -84,10 +85,19 @@ def _normalize_solve_result(partial: SolveSuggestResult, subjects: list[Subject]
         lv = partial.suggested_grade_level
         if lv < 1 or lv > 12:
             partial.suggested_grade_level = None
+    partial.knowledge_tags = normalize_knowledge_tags(partial.knowledge_tags)
     return partial
 
 
-def _solve_system_prompt(subject_lines: str) -> str:
+def _solve_system_prompt(subject_lines: str, *, subject_hint: str | None = None, grade_hint: str | None = None) -> str:
+    context = ""
+    if subject_hint or grade_hint:
+        parts = []
+        if subject_hint:
+            parts.append(f"科目：{subject_hint}")
+        if grade_hint:
+            parts.append(f"年级：{grade_hint}")
+        context = "已知" + "，".join(parts) + "。知识点标签须符合该年级该科目的教学范围。"
     return (
         "你是中小学错题辅导助手。下面给出某道题的题干文字。"
         "请给出简明、可跟做的解题思路与最终答案，便于学生复习错题；避免冗长铺垫与重复解释。"
@@ -101,10 +111,14 @@ def _solve_system_prompt(subject_lines: str) -> str:
         "同时推断科目与年级：科目使用下列编码之一（优先精确匹配）："
         f"{subject_lines}。"
         "年级用 1-12 的整数表示：1-9 为一至九年级，10-12 为高一至高三。"
+        "knowledge_tags 为字符串数组，给出 1～4 个本题涉及的知识点标签："
+        "须结合推断出的年级与科目，使用简短中文名词短语（如「一元一次方程」「完形填空」「牛顿第二定律」），"
+        "不要写过于宽泛的词（如「数学」「基础」）。"
+        f"{context}"
         "只输出一个 JSON 对象，不要 Markdown 代码块，不要 JSON 以外的说明。字段为："
         "analysis（解题思路，纯文本，可用换行与 **加粗**）, answer（最终答案）, "
         "suggested_subject_code（科目编码，必须与列表之一一致，若无法判断则填第一个编码）, "
-        "suggested_grade_level（整数 1-12）。不要重复输出 stem 字段。"
+        "suggested_grade_level（整数 1-12）, knowledge_tags（字符串数组）。不要重复输出 stem 字段。"
     )
 
 
@@ -115,6 +129,8 @@ async def _solve_from_stem_text(
     *,
     model: str | None = None,
     model_solve: str | None = None,
+    subject_code: str | None = None,
+    grade_level: int | None = None,
 ) -> SolveSuggestResult:
     s_base, s_chat, s_key = _solve_transport(cfg)
     if not s_key:
@@ -128,8 +144,22 @@ async def _solve_from_stem_text(
         )
 
     subjects, subject_lines = await _subject_code_lines(db)
+    subject_hint: str | None = None
+    if subject_code:
+        subj = next((s for s in subjects if s.code == subject_code), None)
+        subject_hint = subj.name if subj else subject_code
+    grade_hint: str | None = None
+    if grade_level is not None:
+        if 1 <= grade_level <= 9:
+            grade_hint = f"{grade_level}年级"
+        elif grade_level == 10:
+            grade_hint = "高一"
+        elif grade_level == 11:
+            grade_hint = "高二"
+        elif grade_level == 12:
+            grade_hint = "高三"
     solve_messages = [
-        {"role": "system", "content": _solve_system_prompt(subject_lines)},
+        {"role": "system", "content": _solve_system_prompt(subject_lines, subject_hint=subject_hint, grade_hint=grade_hint)},
         {"role": "user", "content": f"题干如下：\n{stem_text}"},
     ]
 
@@ -164,7 +194,15 @@ async def solve_from_stem(
     stem_text = body.stem.strip()
     if not stem_text:
         raise HTTPException(status_code=400, detail="题干不能为空")
-    return await _solve_from_stem_text(db, cfg, stem_text, model=model, model_solve=model_solve)
+    return await _solve_from_stem_text(
+        db,
+        cfg,
+        stem_text,
+        model=model,
+        model_solve=model_solve,
+        subject_code=body.subject_code,
+        grade_level=body.grade_level,
+    )
 
 
 @router.post("", response_model=AnalyzeResult)
@@ -242,4 +280,5 @@ async def analyze_image(
         answer=partial.answer,
         suggested_subject_code=partial.suggested_subject_code,
         suggested_grade_level=partial.suggested_grade_level,
+        knowledge_tags=partial.knowledge_tags,
     )

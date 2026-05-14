@@ -31,6 +31,21 @@ export type Grade = {
   sort_order: number;
 };
 
+export type GradeSubjectBrief = {
+  id: string;
+  name: string;
+  code: string | null;
+  sort_order: number;
+};
+
+export type GradeWithSubjects = {
+  id: string;
+  level: number;
+  name: string;
+  sort_order: number;
+  subjects: GradeSubjectBrief[];
+};
+
 export type Mistake = {
   id: string;
   subject_id: string;
@@ -40,10 +55,16 @@ export type Mistake = {
   answer: string;
   image_path: string | null;
   is_mastered: boolean;
+  knowledge_tags: string[];
   created_at: string;
   updated_at: string;
   subject_name?: string | null;
   grade_name?: string | null;
+};
+
+export type KnowledgeTagCount = {
+  tag: string;
+  count: number;
 };
 
 export type SubjectMistakeSummary = {
@@ -51,6 +72,37 @@ export type SubjectMistakeSummary = {
   subject_name: string;
   subject_code: string | null;
   mistake_count: number;
+  knowledge_tags: KnowledgeTagCount[];
+};
+
+export type MistakeStatsGradeRow = {
+  grade_level_id: string;
+  grade_name: string;
+  level: number;
+  mistake_count: number;
+};
+
+export type MistakeStatsSubjectRow = {
+  subject_id: string;
+  subject_name: string;
+  mistake_count: number;
+};
+
+export type MistakeStatsTagRow = {
+  tag: string;
+  mistake_count: number;
+};
+
+export type MistakeStatsOverview = {
+  /** 累计错题数量（含已掌握与未掌握） */
+  total_mistake_count: number;
+  /** 已掌握错题数量 */
+  mastered_count: number;
+  /** 掌握率（已掌握/累计×100；无错题时为 0） */
+  mastery_rate_percent: number;
+  by_grade: MistakeStatsGradeRow[];
+  by_subject: MistakeStatsSubjectRow[];
+  by_tag: MistakeStatsTagRow[];
 };
 
 export type AiPreset = {
@@ -91,6 +143,7 @@ export type AnalyzeResult = {
   answer: string;
   suggested_subject_code: string | null;
   suggested_grade_level: number | null;
+  knowledge_tags: string[];
 };
 
 export type SolveSuggestResult = {
@@ -98,6 +151,7 @@ export type SolveSuggestResult = {
   answer: string;
   suggested_subject_code: string | null;
   suggested_grade_level: number | null;
+  knowledge_tags: string[];
 };
 
 export type PracticeDifficulty = "easy" | "medium" | "hard" | "challenge";
@@ -115,8 +169,8 @@ export type PracticeCheckResult = {
   explanation: string;
 };
 
-export async function fetchSubjects() {
-  const { data } = await http.get<Subject[]>("/api/subjects");
+export async function fetchSubjects(params?: { grade_level_id?: string }) {
+  const { data } = await http.get<Subject[]>("/api/subjects", { params });
   return data;
 }
 
@@ -134,10 +188,16 @@ export async function fetchGrades() {
   return data;
 }
 
+export async function fetchGradeCatalog() {
+  const { data } = await http.get<GradeWithSubjects[]>("/api/grades/catalog");
+  return data;
+}
+
 export async function fetchMistakes(params?: {
   subject_id?: string;
   grade_level_id?: string;
   mastery?: "mastered" | "unmastered" | "all";
+  knowledge_tag?: string;
 }) {
   const { data } = await http.get<Mistake[]>("/api/mistakes", { params });
   return data;
@@ -147,6 +207,11 @@ export async function fetchSubjectMistakeSummary(gradeLevelId: string) {
   const { data } = await http.get<SubjectMistakeSummary[]>("/api/mistakes/summary/by-subject", {
     params: { grade_level_id: gradeLevelId },
   });
+  return data;
+}
+
+export async function fetchMistakeStatsOverview() {
+  const { data } = await http.get<MistakeStatsOverview>("/api/stats/mistakes");
   return data;
 }
 
@@ -171,8 +236,15 @@ export async function analyzeImage(
   return data;
 }
 
-export async function solveFromStem(stem: string) {
-  const { data } = await http.post<SolveSuggestResult>("/api/analyze/solve-stem", { stem });
+export async function solveFromStem(
+  stem: string,
+  opts?: { subject_code?: string | null; grade_level?: number | null },
+) {
+  const { data } = await http.post<SolveSuggestResult>("/api/analyze/solve-stem", {
+    stem,
+    subject_code: opts?.subject_code ?? undefined,
+    grade_level: opts?.grade_level ?? undefined,
+  });
   return data;
 }
 
@@ -209,6 +281,7 @@ export async function createMistake(payload: {
   stem: string;
   analysis: string;
   answer: string;
+  knowledge_tags?: string[];
   image?: File | null;
 }) {
   const fd = new FormData();
@@ -217,6 +290,7 @@ export async function createMistake(payload: {
   fd.append("stem", payload.stem);
   fd.append("analysis", payload.analysis);
   fd.append("answer", payload.answer);
+  fd.append("knowledge_tags", JSON.stringify(payload.knowledge_tags ?? []));
   if (payload.image) fd.append("image", payload.image);
   const { data } = await http.post<Mistake>("/api/mistakes", fd);
   return data;
@@ -231,6 +305,7 @@ export async function updateMistake(
     analysis: string;
     answer: string;
     is_mastered: boolean;
+    knowledge_tags: string[];
   }>,
 ) {
   const { data } = await http.patch<Mistake>(`/api/mistakes/${id}`, payload);

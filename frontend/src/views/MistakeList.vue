@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { NButton, NEllipsis, NPopconfirm, NSelect, NSpin, NTag, useMessage } from "naive-ui";
+import { NButton, NDropdown, NEllipsis, NPopconfirm, NSelect, NSpin, NTag, useMessage } from "naive-ui";
+import type { DropdownOption } from "naive-ui";
 import type { Grade, Mistake, SubjectMistakeSummary } from "../api/client";
 import { deleteMistake, fetchGrades, fetchMistakes, fetchSubjectMistakeSummary } from "../api/client";
 import { useAuthStore } from "../stores/auth";
@@ -29,6 +30,7 @@ const subjectSummaries = ref<SubjectMistakeSummary[]>([]);
 const mistakes = ref<Mistake[]>([]);
 const viewMode = ref<ViewMode>("subjects");
 const activeSubject = ref<SubjectMistakeSummary | null>(null);
+const selectedTag = ref<string | null>(null);
 const masteryFilter = ref<MasteryFilter>("unmastered");
 const masteryOptions = [
   { label: "未掌握", value: "unmastered" as const },
@@ -42,6 +44,7 @@ function hubQueryFromState(): Record<string, string> {
   if (selectedGradeId.value) query.grade = selectedGradeId.value;
   if (viewMode.value === "mistakes" && activeSubject.value) {
     query.subject = activeSubject.value.subject_id;
+    if (selectedTag.value) query.tag = selectedTag.value;
   }
   return query;
 }
@@ -50,7 +53,8 @@ function routeQueryMatchesState(): boolean {
   const next = hubQueryFromState();
   const grade = typeof route.query.grade === "string" ? route.query.grade : undefined;
   const subject = typeof route.query.subject === "string" ? route.query.subject : undefined;
-  return next.grade === grade && next.subject === subject;
+  const tag = typeof route.query.tag === "string" ? route.query.tag : undefined;
+  return next.grade === grade && next.subject === subject && (next.tag ?? undefined) === tag;
 }
 
 function syncRouteQuery() {
@@ -78,6 +82,8 @@ function applyRouteQuery() {
   if (summary) {
     activeSubject.value = summary;
     viewMode.value = "mistakes";
+    const qTag = typeof route.query.tag === "string" ? route.query.tag : null;
+    selectedTag.value = qTag;
     void loadMistakes();
     return;
   }
@@ -106,7 +112,9 @@ const gradeHint = computed(() => {
 
 const headerSubtitle = computed(() => {
   if (viewMode.value === "mistakes" && activeSubject.value) {
-    return `${selectedGrade.value?.name ?? ""} · ${activeSubject.value.mistake_count} 道错题`;
+    const base = `${selectedGrade.value?.name ?? ""} · ${activeSubject.value.subject_name}`;
+    if (selectedTag.value) return `${base} · 标签：${selectedTag.value}`;
+    return `${base} · ${activeSubject.value.mistake_count} 道错题`;
   }
   if (totalMistakeCount.value > 0) {
     return `${selectedGrade.value?.name ?? "当前年级"} · 共 ${totalMistakeCount.value} 道错题`;
@@ -158,6 +166,7 @@ async function loadMistakes() {
       grade_level_id: selectedGradeId.value,
       subject_id: activeSubject.value.subject_id,
       mastery: masteryFilter.value,
+      knowledge_tag: selectedTag.value ?? undefined,
     });
   } catch (e) {
     message.error((e as Error).message);
@@ -214,9 +223,33 @@ watch(masteryFilter, () => {
   void loadMistakes();
 });
 
-function openSubject(summary: SubjectMistakeSummary) {
+function openSubject(summary: SubjectMistakeSummary, tag?: string | null) {
   activeSubject.value = summary;
+  selectedTag.value = tag ?? null;
   viewMode.value = "mistakes";
+  syncRouteQuery();
+  void loadMistakes();
+}
+
+function subjectTagMenuOptions(item: SubjectMistakeSummary): DropdownOption[] {
+  return (item.knowledge_tags ?? []).map((t) => ({
+    label: `${t.tag}（${t.count}）`,
+    key: `tag:${item.subject_id}:${t.tag}`,
+  }));
+}
+
+function onSubjectTagMenuSelect(key: string | number, item: SubjectMistakeSummary) {
+  const s = String(key);
+  if (!s.startsWith("tag:")) return;
+  const rest = s.slice(4);
+  const sep = rest.indexOf(":");
+  if (sep < 0) return;
+  const tag = rest.slice(sep + 1);
+  openSubject(item, tag);
+}
+
+function clearTagFilter() {
+  selectedTag.value = null;
   syncRouteQuery();
   void loadMistakes();
 }
@@ -224,6 +257,7 @@ function openSubject(summary: SubjectMistakeSummary) {
 function backToSubjects() {
   viewMode.value = "subjects";
   activeSubject.value = null;
+  selectedTag.value = null;
   mistakes.value = [];
   syncRouteQuery();
 }
@@ -321,24 +355,45 @@ function formatDate(iso: string) {
     <NSpin :show="loading && viewMode === 'subjects'">
       <section v-if="viewMode === 'subjects'" class="mistake-hub__panel">
         <div v-if="subjectSummaries.length > 0" class="mistake-hub__subject-grid">
-          <button
+          <article
             v-for="item in subjectSummaries"
             :key="item.subject_id"
-            type="button"
-            class="subject-tile"
-            :style="{
-              background: subjectAccent(item.subject_code).bg,
-              '--tile-fg': subjectAccent(item.subject_code).fg,
-              '--tile-ring': subjectAccent(item.subject_code).ring,
-            }"
-            @click="openSubject(item)"
+            class="subject-tile-wrap"
           >
+            <button
+              type="button"
+              class="subject-tile"
+              :style="{
+                background: subjectAccent(item.subject_code).bg,
+                '--tile-fg': subjectAccent(item.subject_code).fg,
+                '--tile-ring': subjectAccent(item.subject_code).ring,
+              }"
+              @click="openSubject(item)"
+            >
             <div class="subject-tile__badge">{{ item.mistake_count }}</div>
             <div class="subject-tile__avatar">{{ subjectInitial(item.subject_name) }}</div>
             <div class="subject-tile__name">{{ item.subject_name }}</div>
-            <p class="subject-tile__meta">{{ item.mistake_count }} 道错题</p>
-            <span class="subject-tile__arrow" aria-hidden="true">→</span>
+            <p class="subject-tile__meta">
+              {{ item.mistake_count > 0 ? `${item.mistake_count} 道错题` : "暂无错题" }}
+            </p>
           </button>
+            <NDropdown
+              v-if="item.knowledge_tags?.length"
+              trigger="click"
+              :options="subjectTagMenuOptions(item)"
+              @select="(key) => onSubjectTagMenuSelect(key, item)"
+            >
+              <button
+                type="button"
+                class="subject-tile__tag-trigger"
+                :style="{ '--tile-fg': subjectAccent(item.subject_code).fg }"
+                aria-label="按知识点筛选"
+                @click.stop
+              >
+                ▾
+              </button>
+            </NDropdown>
+          </article>
         </div>
 
         <div v-else-if="!loading" class="mistake-hub__empty">
@@ -351,6 +406,9 @@ function formatDate(iso: string) {
     </NSpin>
 
     <section v-if="viewMode === 'mistakes' && activeSubject" class="mistake-hub__panel mistake-hub__panel--grow">
+      <div v-if="selectedTag" class="mistake-hub__tag-bar">
+        <NTag size="small" type="info" closable @close="clearTagFilter">知识点：{{ selectedTag }}</NTag>
+      </div>
       <NSpin :show="mistakesLoading" class="mistake-hub__spin">
         <div v-if="mistakes.length > 0" class="mistake-hub__mistake-grid">
           <article
@@ -378,6 +436,9 @@ function formatDate(iso: string) {
               </div>
             </div>
             <NEllipsis :line-clamp="4" class="mistake-tile__stem">{{ m.stem }}</NEllipsis>
+            <div v-if="m.knowledge_tags?.length" class="mistake-tile__tags">
+              <NTag v-for="t in m.knowledge_tags" :key="t" size="tiny" :bordered="false">{{ t }}</NTag>
+            </div>
             <div class="mistake-tile__actions app-actions app-actions--bar" @click.stop>
               <NButton size="small" secondary @click="router.push(`/mistakes/${m.id}/edit`)">编辑</NButton>
               <NPopconfirm positive-text="删除" negative-text="取消" @positive-click="onDelete(m.id)">
@@ -504,8 +565,17 @@ function formatDate(iso: string) {
   gap: 12px;
 }
 
-.subject-tile {
+.subject-tile-wrap {
   position: relative;
+}
+
+.subject-tile-wrap .subject-tile {
+  /* 与右下角知识点按钮区域对齐，有无小三角卡片高度一致 */
+  padding-bottom: 44px;
+}
+
+.subject-tile {
+  width: 100%;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -577,13 +647,30 @@ function formatDate(iso: string) {
   color: var(--app-text-muted);
 }
 
-.subject-tile__arrow {
+.subject-tile__tag-trigger {
   position: absolute;
-  right: 16px;
-  bottom: 14px;
-  font-size: 16px;
+  right: 10px;
+  bottom: 10px;
+  z-index: 2;
+  width: 28px;
+  height: 28px;
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  line-height: 1;
   color: var(--tile-fg);
-  opacity: 0.55;
+  background: rgba(255, 255, 255, 0.88);
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+
+.subject-tile__tag-trigger:hover {
+  background: #fff;
+  transform: translateY(-1px);
 }
 
 .mistake-hub__mistake-grid {
@@ -652,6 +739,16 @@ function formatDate(iso: string) {
   border-radius: 999px;
   background: rgba(79, 70, 229, 0.08);
   color: #4f46e5;
+}
+
+.mistake-hub__tag-bar {
+  margin-bottom: 8px;
+}
+
+.mistake-tile__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
 }
 
 .mistake-tile__stem {

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { NButton, NCard, NFormItem, NImage, NInput, NSelect, NSpace, NSwitch, NSpin, useMessage } from "naive-ui";
+import { NButton, NCard, NDynamicTags, NFormItem, NImage, NInput, NSelect, NSpace, NSwitch, NSpin, useMessage } from "naive-ui";
 import AnalysisField from "../components/AnalysisField.vue";
 import type { Grade, Mistake, Subject } from "../api/client";
 import {
@@ -33,12 +33,29 @@ const answer = ref("");
 const subjectId = ref<string | null>(null);
 const gradeLevelId = ref<string | null>(null);
 const isMastered = ref(false);
+const knowledgeTags = ref<string[]>([]);
 
 const imageObjectUrl = ref<string | null>(null);
 const imageInputRef = ref<HTMLInputElement | null>(null);
 
 const subjectOptions = computed(() => subjects.value.map((s) => ({ label: s.name, value: s.id })));
 const gradeOptions = computed(() => grades.value.map((g) => ({ label: g.name, value: g.id })));
+
+async function loadSubjectsForGrade(gradeId: string | null) {
+  if (!gradeId) {
+    subjects.value = [];
+    return;
+  }
+  try {
+    subjects.value = await fetchSubjects({ grade_level_id: gradeId });
+    if (subjectId.value && !subjects.value.some((s) => s.id === subjectId.value)) {
+      subjectId.value = subjects.value[0]?.id ?? null;
+    }
+  } catch (e) {
+    message.error((e as Error).message);
+    subjects.value = [];
+  }
+}
 
 async function loadImageBlob() {
   if (imageObjectUrl.value) {
@@ -56,7 +73,7 @@ async function loadImageBlob() {
 async function load() {
   loading.value = true;
   try {
-    const [m, ss, gs] = await Promise.all([fetchMistake(id.value), fetchSubjects(), fetchGrades()]);
+    const [m, gs] = await Promise.all([fetchMistake(id.value), fetchGrades()]);
     row.value = m;
     stem.value = m.stem;
     analysis.value = m.analysis;
@@ -64,8 +81,9 @@ async function load() {
     subjectId.value = m.subject_id;
     gradeLevelId.value = m.grade_level_id;
     isMastered.value = m.is_mastered;
-    subjects.value = ss;
+    knowledgeTags.value = [...(m.knowledge_tags ?? [])];
     grades.value = gs;
+    await loadSubjectsForGrade(m.grade_level_id);
     await loadImageBlob();
   } catch (e) {
     message.error((e as Error).message);
@@ -111,16 +129,27 @@ async function runSolveFromStem() {
   }
   solvingStem.value = true;
   try {
-    const res = await solveFromStem(text);
+    const subj = subjects.value.find((s) => s.id === subjectId.value);
+    const grade = grades.value.find((g) => g.id === gradeLevelId.value);
+    const res = await solveFromStem(text, {
+      subject_code: subj?.code ?? null,
+      grade_level: grade?.level ?? null,
+    });
     analysis.value = res.analysis;
     answer.value = res.answer;
-    const subj = subjects.value.find((s) => s.code === res.suggested_subject_code);
-    if (subj) subjectId.value = subj.id;
+    const matched = subjects.value.find((s) => s.code === res.suggested_subject_code);
+    if (matched) subjectId.value = matched.id;
     if (res.suggested_grade_level != null) {
       const g = grades.value.find((x) => x.level === res.suggested_grade_level);
-      if (g) gradeLevelId.value = g.id;
+      if (g) {
+        gradeLevelId.value = g.id;
+        await loadSubjectsForGrade(g.id);
+      }
     }
-    message.success("已根据题干重新生成解析与答案");
+    if (res.knowledge_tags?.length) {
+      knowledgeTags.value = [...res.knowledge_tags];
+    }
+    message.success("已根据题干重新生成解析、答案与知识点标签");
   } catch (e) {
     message.error((e as Error).message);
   } finally {
@@ -146,6 +175,7 @@ async function save() {
       analysis: analysis.value,
       answer: answer.value,
       is_mastered: isMastered.value,
+      knowledge_tags: knowledgeTags.value,
     });
     message.success("已保存");
     router.push(`/mistakes/${id.value}`);
@@ -200,15 +230,6 @@ async function save() {
             </section>
 
             <div class="mistake-edit__meta">
-              <NFormItem label="科目" :show-feedback="false" class="mistake-edit__item mistake-edit__item--inline" label-placement="top">
-                <NSelect
-                  v-model:value="subjectId"
-                  size="small"
-                  class="mistake-edit__select"
-                  placeholder="请选择科目"
-                  :options="subjectOptions"
-                />
-              </NFormItem>
               <NFormItem label="年级" :show-feedback="false" class="mistake-edit__item mistake-edit__item--inline" label-placement="top">
                 <NSelect
                   v-model:value="gradeLevelId"
@@ -216,6 +237,17 @@ async function save() {
                   class="mistake-edit__select"
                   placeholder="请选择年级"
                   :options="gradeOptions"
+                  @update:value="(v) => void loadSubjectsForGrade(v)"
+                />
+              </NFormItem>
+              <NFormItem label="科目" :show-feedback="false" class="mistake-edit__item mistake-edit__item--inline" label-placement="top">
+                <NSelect
+                  v-model:value="subjectId"
+                  size="small"
+                  class="mistake-edit__select"
+                  placeholder="请选择科目"
+                  :options="subjectOptions"
+                  :disabled="!gradeLevelId"
                 />
               </NFormItem>
             </div>
@@ -225,6 +257,10 @@ async function save() {
                 <template #checked>已掌握</template>
                 <template #unchecked>未掌握</template>
               </NSwitch>
+            </NFormItem>
+
+            <NFormItem label="知识点标签" :show-feedback="false" class="mistake-edit__item" label-placement="top">
+              <NDynamicTags v-model:value="knowledgeTags" size="small" :max="6" placeholder="回车添加标签" />
             </NFormItem>
 
             <NFormItem label="题干" :show-feedback="false" class="mistake-edit__item" label-placement="top">

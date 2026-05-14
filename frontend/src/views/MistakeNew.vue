@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import {
   NButton,
   NCard,
+  NDynamicTags,
   NFormItem,
   NGrid,
   NGridItem,
@@ -66,6 +67,7 @@ const analysis = ref("");
 const answer = ref("");
 const subjectId = ref<string | null>(null);
 const gradeLevelId = ref<string | null>(null);
+const knowledgeTags = ref<string[]>([]);
 
 const fileInputRef = ref<HTMLInputElement | null>(null);
 
@@ -116,6 +118,7 @@ function onPickFile(e: Event) {
   answer.value = "";
   subjectId.value = null;
   gradeLevelId.value = null;
+  knowledgeTags.value = [];
   hasRecognized.value = false;
   originalFile.value = f;
   fileName.value = f.name;
@@ -436,9 +439,7 @@ function reopenCropModal() {
 
 onMounted(async () => {
   try {
-    const [ss, gs] = await Promise.all([fetchSubjects(), fetchGrades()]);
-    subjects.value = ss;
-    grades.value = gs;
+    grades.value = await fetchGrades();
   } catch (e) {
     message.error((e as Error).message);
   } finally {
@@ -454,6 +455,23 @@ onBeforeUnmount(() => {
 
 const subjectOptions = computed(() => subjects.value.map((s) => ({ label: s.name, value: s.id })));
 const gradeOptions = computed(() => grades.value.map((g) => ({ label: g.name, value: g.id })));
+
+async function loadSubjectsForGrade(gradeId: string | null) {
+  if (!gradeId) {
+    subjects.value = [];
+    subjectId.value = null;
+    return;
+  }
+  try {
+    subjects.value = await fetchSubjects({ grade_level_id: gradeId });
+    if (subjectId.value && !subjects.value.some((s) => s.id === subjectId.value)) {
+      subjectId.value = null;
+    }
+  } catch (e) {
+    message.error((e as Error).message);
+    subjects.value = [];
+  }
+}
 
 const selectionStyle = computed(() => {
   const r = selRect.value;
@@ -479,27 +497,43 @@ const analyzeSpinDesc = computed(() =>
   solvingStem.value ? "正在根据题干生成解析…" : "AI 识别中…",
 );
 
-function applySolveSuggestions(
+async function applySolveSuggestions(
   res: {
     analysis: string;
     answer: string;
     suggested_subject_code: string | null;
     suggested_grade_level: number | null;
+    knowledge_tags?: string[];
   },
   opts?: { fallbackSubject?: boolean },
 ) {
   analysis.value = res.analysis;
   answer.value = res.answer;
+  if (res.suggested_grade_level != null) {
+    const g = grades.value.find((x) => x.level === res.suggested_grade_level);
+    if (g) {
+      gradeLevelId.value = g.id;
+      await loadSubjectsForGrade(g.id);
+    }
+  }
   const subj = subjects.value.find((s) => s.code === res.suggested_subject_code);
   if (subj) {
     subjectId.value = subj.id;
   } else if (opts?.fallbackSubject) {
     subjectId.value = subjects.value[0]?.id ?? null;
   }
-  if (res.suggested_grade_level != null) {
-    const g = grades.value.find((x) => x.level === res.suggested_grade_level);
-    if (g) gradeLevelId.value = g.id;
+  if (res.knowledge_tags?.length) {
+    knowledgeTags.value = [...res.knowledge_tags];
   }
+}
+
+function solveContext() {
+  const subj = subjects.value.find((s) => s.id === subjectId.value);
+  const grade = grades.value.find((g) => g.id === gradeLevelId.value);
+  return {
+    subject_code: subj?.code ?? null,
+    grade_level: grade?.level ?? null,
+  };
 }
 
 async function runAnalyze() {
@@ -511,7 +545,7 @@ async function runAnalyze() {
   try {
     const res = await analyzeImage(uploadFile.value);
     stem.value = res.stem;
-    applySolveSuggestions(res, { fallbackSubject: true });
+    await applySolveSuggestions(res, { fallbackSubject: true });
     hasRecognized.value = true;
     message.success(usedCropRegion.value ? "已按框选区域识别，请核对题干并保存" : "识别完成，请核对题干并保存");
   } catch (e) {
@@ -529,8 +563,8 @@ async function runSolveFromStem() {
   }
   solvingStem.value = true;
   try {
-    const res = await solveFromStem(text);
-    applySolveSuggestions(res);
+    const res = await solveFromStem(text, solveContext());
+    await applySolveSuggestions(res);
     message.success("已根据题干重新生成解析与答案");
   } catch (e) {
     message.error((e as Error).message);
@@ -560,6 +594,7 @@ async function save() {
       stem: stem.value,
       analysis: analysis.value,
       answer: answer.value,
+      knowledge_tags: knowledgeTags.value,
       image: uploadFile.value,
     });
     message.success("已保存");
@@ -625,20 +660,30 @@ async function save() {
               <section class="mistake-new__section">
                 <h2 class="mistake-new__section-title">分类信息</h2>
                 <NSpace vertical :size="10" style="width: 100%">
-                  <NFormItem label="科目" :show-feedback="false" class="mistake-new__item" label-placement="top">
-                    <NSelect
-                      v-model:value="subjectId"
-                      size="small"
-                      :options="subjectOptions"
-                      placeholder="请选择科目"
-                    />
-                  </NFormItem>
                   <NFormItem label="年级" :show-feedback="false" class="mistake-new__item" label-placement="top">
                     <NSelect
                       v-model:value="gradeLevelId"
                       size="small"
                       :options="gradeOptions"
-                      placeholder="请选择年级"
+                      placeholder="请先选择年级"
+                      @update:value="(v) => void loadSubjectsForGrade(v)"
+                    />
+                  </NFormItem>
+                  <NFormItem label="科目" :show-feedback="false" class="mistake-new__item" label-placement="top">
+                    <NSelect
+                      v-model:value="subjectId"
+                      size="small"
+                      :options="subjectOptions"
+                      :disabled="!gradeLevelId"
+                      placeholder="请选择科目"
+                    />
+                  </NFormItem>
+                  <NFormItem label="知识点标签" :show-feedback="false" class="mistake-new__item" label-placement="top">
+                    <NDynamicTags
+                      v-model:value="knowledgeTags"
+                      size="small"
+                      :max="6"
+                      placeholder="AI 识别后可编辑，回车添加"
                     />
                   </NFormItem>
                 </NSpace>

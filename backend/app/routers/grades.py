@@ -1,11 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.models import GradeLevel, User
+from app.models import GradeLevel, GradeSubject, Subject, User
 from app.routers.deps import get_current_user
-from app.schemas import GradeOut
+from app.schemas import GradeOut, GradeSubjectBrief, GradeWithSubjectsOut
 
 router = APIRouter(prefix="/api/grades", tags=["grades"])
 
@@ -20,6 +20,43 @@ async def list_grades(
     result = await db.execute(select(GradeLevel).order_by(GradeLevel.sort_order, GradeLevel.level))
     rows = result.scalars().all()
     return [GradeOut.model_validate(r) for r in rows]
+
+
+@router.get("/catalog", response_model=list[GradeWithSubjectsOut])
+async def grade_subject_catalog(
+    _: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[GradeWithSubjectsOut]:
+    grades = (
+        await db.execute(select(GradeLevel).order_by(GradeLevel.sort_order, GradeLevel.level))
+    ).scalars().all()
+    mappings = (
+        await db.execute(
+            select(GradeSubject, Subject)
+            .join(Subject, Subject.id == GradeSubject.subject_id)
+            .order_by(GradeSubject.grade_level_id, GradeSubject.sort_order, Subject.name)
+        )
+    ).all()
+    by_grade: dict[str, list[GradeSubjectBrief]] = {}
+    for gs, subject in mappings:
+        by_grade.setdefault(gs.grade_level_id, []).append(
+            GradeSubjectBrief(
+                id=subject.id,
+                name=subject.name,
+                code=subject.code,
+                sort_order=gs.sort_order,
+            )
+        )
+    return [
+        GradeWithSubjectsOut(
+            id=g.id,
+            level=g.level,
+            name=g.name,
+            sort_order=g.sort_order,
+            subjects=by_grade.get(g.id, []),
+        )
+        for g in grades
+    ]
 
 
 @router.post("", response_model=GradeOut)

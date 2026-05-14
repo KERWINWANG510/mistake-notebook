@@ -3,7 +3,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.models import Mistake, Subject, User
+from app.models import GradeLevel, GradeSubject, Mistake, Subject, User
 from app.routers.deps import get_current_user
 from app.schemas import SubjectCreate, SubjectOut, SubjectUpdate
 
@@ -14,8 +14,19 @@ router = APIRouter(prefix="/api/subjects", tags=["subjects"])
 async def list_subjects(
     _: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    grade_level_id: str | None = None,
 ) -> list[SubjectOut]:
-    result = await db.execute(select(Subject).order_by(Subject.sort_order, Subject.name))
+    if grade_level_id:
+        if not await db.get(GradeLevel, grade_level_id):
+            raise HTTPException(status_code=400, detail="年级不存在")
+        result = await db.execute(
+            select(Subject)
+            .join(GradeSubject, GradeSubject.subject_id == Subject.id)
+            .where(GradeSubject.grade_level_id == grade_level_id)
+            .order_by(GradeSubject.sort_order, Subject.name)
+        )
+    else:
+        result = await db.execute(select(Subject).order_by(Subject.sort_order, Subject.name))
     rows = result.scalars().all()
     return [SubjectOut.model_validate(r) for r in rows]
 
