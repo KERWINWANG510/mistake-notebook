@@ -66,6 +66,8 @@ async def chat_completion(
     model: str,
     messages: list[dict[str, Any]],
     temperature: float = 0.2,
+    *,
+    request_timeout: float = 120.0,
 ) -> tuple[bool, str | None, dict[str, Any] | None]:
     url = join_url(base_url, chat_path)
     headers: dict[str, str] = {"Content-Type": "application/json"}
@@ -73,7 +75,7 @@ async def chat_completion(
         headers["Authorization"] = f"Bearer {api_key}"
     payload: dict[str, Any] = {"model": model, "messages": messages, "temperature": temperature}
     try:
-        async with httpx.AsyncClient(timeout=120.0) as client:
+        async with httpx.AsyncClient(timeout=request_timeout) as client:
             r = await client.post(url, headers=headers, json=payload)
     except httpx.TimeoutException:
         return False, "上游对话请求超时", None

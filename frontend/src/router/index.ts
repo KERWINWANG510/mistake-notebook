@@ -42,12 +42,18 @@ const router = createRouter({
       component: () => import("../views/StatisticsView.vue"),
     },
     {
+      path: "/practice/mock-paper",
+      name: "mock-paper",
+      component: () => import("../views/MockPaperView.vue"),
+    },
+    {
       path: "/grade-subjects",
       name: "grade-subjects",
       component: () => import("../views/GradeSubjectsView.vue"),
     },
     { path: "/subjects", redirect: "/grade-subjects" },
     { path: "/grades", redirect: "/grade-subjects" },
+    { path: "/practice", redirect: "/practice/mock-paper" },
     {
       path: "/settings/ai",
       name: "settings-ai",

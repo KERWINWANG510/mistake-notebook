@@ -1,8 +1,7 @@
 <script setup lang="ts">
-import { computed, h, onMounted, onUnmounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import type { MenuOption } from "naive-ui";
-import { NIcon } from "naive-ui";
+import { NAvatar, NButton, NTooltip } from "naive-ui";
 import NavIcon from "./components/NavIcon.vue";
 import { fetchAppVersion } from "./api/client";
 import { useAuthStore } from "./stores/auth";
@@ -40,12 +39,13 @@ const drawerWidth = computed(() => Math.min(320, Math.round(windowWidth.value * 
 type NavItem = {
   label: string;
   key: string;
-  icon: "book" | "subject" | "grade" | "ai" | "users" | "stats";
+  icon: "book" | "subject" | "grade" | "ai" | "users" | "stats" | "practice";
 };
 
 const navItems = computed<NavItem[]>(() => {
   const items: NavItem[] = [
     { label: "错题本", key: "/mistakes", icon: "book" },
+    { label: "模拟卷", key: "/practice/mock-paper", icon: "practice" },
     { label: "统计", key: "/stats", icon: "stats" },
     { label: "年级科目", key: "/grade-subjects", icon: "subject" },
     { label: "AI 设置", key: "/settings/ai", icon: "ai" },
@@ -56,17 +56,10 @@ const navItems = computed<NavItem[]>(() => {
   return items;
 });
 
-const menuOptions = computed<MenuOption[]>(() =>
-  navItems.value.map((item) => ({
-    label: item.label,
-    key: item.key,
-    icon: () => h(NIcon, null, { default: () => h(NavIcon, { name: item.icon }) }),
-  })),
-);
-
 const activeKey = computed(() => {
   const p = route.path;
   if (p.startsWith("/mistakes")) return "/mistakes";
+  if (p.startsWith("/practice")) return "/practice/mock-paper";
   if (p.startsWith("/stats")) return "/stats";
   if (p.startsWith("/admin")) return p;
   return p;
@@ -80,6 +73,10 @@ const userInitial = computed(() => {
 function go(key: string) {
   router.push(key);
   drawerOpen.value = false;
+}
+
+function navActive(item: NavItem) {
+  return activeKey.value === item.key;
 }
 
 function logout() {
@@ -99,27 +96,50 @@ function logout() {
             <NLayoutHeader
               class="app-header"
               bordered
-              :style="{ height: narrow ? '52px' : '58px', padding: narrow ? '0 12px' : '0 16px' }"
+              :style="{ height: narrow ? '52px' : '60px', padding: narrow ? '0 12px' : '0 14px' }"
             >
-              <div class="app-header-inner" style="height: 100%">
-                <div class="app-brand">
-                  <div class="app-brand__mark">错</div>
-                  <div class="app-brand__text">AI 错题本</div>
-                  <span v-if="appVersion" class="app-version" :title="`版本 ${appVersion}`">v{{ appVersion }}</span>
-                  <NMenu
-                    v-if="!narrow && auth.isLoggedIn"
-                    mode="horizontal"
-                    :value="activeKey"
-                    :options="menuOptions"
-                    style="flex: 1; min-width: 0; margin-left: 8px"
-                    @update:value="go"
-                  />
+              <div class="app-header-inner" :class="{ 'app-header-inner--narrow': narrow }" style="height: 100%">
+                <div class="app-header__brand">
+                  <div class="app-brand__mark" aria-hidden="true">错</div>
+                  <div class="app-header__brand-text">
+                    <span class="app-brand__text">AI 错题本</span>
+                    <span v-if="appVersion" class="app-version" :title="`版本 ${appVersion}`">v{{ appVersion }}</span>
+                  </div>
                 </div>
-                <NSpace align="center" :size="8" :wrap="narrow">
-                  <NText v-if="auth.me && !narrow" depth="3" style="font-size: 13px">
-                    你好，{{ auth.me.full_name || auth.me.username }}
-                  </NText>
-                  <NButton v-if="auth.isLoggedIn && !narrow" size="small" secondary @click="logout">退出</NButton>
+
+                <nav
+                  v-if="!narrow && auth.isLoggedIn"
+                  class="app-top-nav"
+                  aria-label="主导航"
+                >
+                  <button
+                    v-for="item in navItems"
+                    :key="item.key"
+                    type="button"
+                    class="app-top-nav__btn"
+                    :class="{ 'app-top-nav__btn--active': navActive(item) }"
+                    :aria-current="navActive(item) ? 'page' : undefined"
+                    @click="go(item.key)"
+                  >
+                    <span class="app-top-nav__ico" aria-hidden="true">
+                      <NavIcon :name="item.icon" />
+                    </span>
+                    <span class="app-top-nav__txt">{{ item.label }}</span>
+                  </button>
+                </nav>
+
+                <div class="app-header__trailing">
+                  <template v-if="!narrow && auth.isLoggedIn && auth.me">
+                    <NTooltip placement="bottom-end">
+                      <template #trigger>
+                        <span class="app-user-chip">
+                          <NAvatar round :size="32" class="app-user-chip__avatar">{{ userInitial }}</NAvatar>
+                        </span>
+                      </template>
+                      {{ auth.me.full_name || auth.me.username }}
+                    </NTooltip>
+                    <NButton size="small" quaternary class="app-header__logout" @click="logout">退出</NButton>
+                  </template>
                   <NButton
                     v-if="narrow && auth.isLoggedIn"
                     class="app-menu-trigger"
@@ -130,7 +150,7 @@ function logout() {
                   >
                     <NavIcon name="menu" />
                   </NButton>
-                </NSpace>
+                </div>
               </div>
             </NLayoutHeader>
             <NLayoutContent class="app-content" :native-scrollbar="false">

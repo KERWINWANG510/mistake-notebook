@@ -185,6 +185,62 @@ export type PracticeCheckResult = {
   explanation: string;
 };
 
+export type MockPaperQuestionTypeItem = {
+  code: string;
+  name: string;
+};
+
+export type MockPaperItemOut = {
+  number: number;
+  minor_index?: number | null;
+  type_code: string;
+  type_name: string;
+  score: number;
+  stem: string;
+};
+
+export type MockPaperSectionOut = {
+  section_order: number;
+  heading: string;
+  section_score: number;
+  items: MockPaperItemOut[];
+};
+
+export type MockPaperAnswerOut = {
+  number: number;
+  answer: string;
+};
+
+export type MockPaperGenerateResult = {
+  title: string;
+  grade_name: string;
+  subject_name: string;
+  requested_total_score: number;
+  actual_total_score: number;
+  suggested_exam_minutes: number;
+  use_answer_sheet: boolean;
+  instructions: string;
+  sections: MockPaperSectionOut[];
+  answers: MockPaperAnswerOut[];
+};
+
+export type MockPaperGenerateBody = {
+  grade_level_id: string;
+  subject_id: string;
+  knowledge_tags?: string[];
+  question_type_codes?: string[];
+  counts_by_type?: Record<string, number>;
+  total_score?: number | null;
+  use_answer_sheet?: boolean;
+};
+
+/** 模拟卷流式生成：NDJSON 事件（与 /api/practice/mock-paper/generate-stream 一致） */
+export type MockPaperStreamEvent =
+  | { type: "phase"; label: string }
+  | { type: "delta"; text: string }
+  | { type: "done"; paper: MockPaperGenerateResult }
+  | { type: "error"; message: string };
+
 export async function fetchAppVersion() {
   const { data } = await http.get<{ version: string }>("/api/version");
   return data.version;
@@ -405,6 +461,125 @@ export async function checkPractice(payload: {
   if (payload.image) fd.append("file", payload.image);
   const { data } = await http.post<PracticeCheckResult>("/api/practice/check", fd);
   return data;
+}
+
+export async function fetchMockPaperQuestionTypes(gradeLevelId: string, subjectId: string) {
+  const { data } = await http.get<MockPaperQuestionTypeItem[]>("/api/practice/mock-paper/question-types", {
+    params: { grade_level_id: gradeLevelId, subject_id: subjectId },
+  });
+  return data;
+}
+
+export async function generateMockPaper(body: MockPaperGenerateBody) {
+  const { data } = await http.post<MockPaperGenerateResult>("/api/practice/mock-paper/generate", body);
+  return data;
+}
+
+/**
+ * 流式生成模拟卷：通过 onEvent 推送阶段与上游文本增量，完成后返回结构化试卷。
+ */
+export async function generateMockPaperStream(
+  body: MockPaperGenerateBody,
+  onEvent: (ev: MockPaperStreamEvent) => void,
+  signal?: AbortSignal,
+): Promise<MockPaperGenerateResult> {
+  const base = apiBase.replace(/\/$/, "");
+  const url = `${base}/api/practice/mock-paper/generate-stream`;
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const token = getStoredToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+      signal,
+    });
+  } catch (e) {
+    if (signal?.aborted || (e instanceof DOMException && e.name === "AbortError")) {
+      throw new Error("已取消生成");
+    }
+    throw e;
+  }
+
+  if (!res.ok) {
+    const raw = await res.text();
+    let msg = `生成请求失败（HTTP ${res.status}）`;
+    try {
+      const j = JSON.parse(raw) as { detail?: unknown };
+      const d = j.detail;
+      if (typeof d === "string") msg = d;
+      else if (Array.isArray(d))
+        msg = d.map((x: { msg?: string }) => x.msg ?? JSON.stringify(x)).join("；");
+    } catch {
+      if (raw.trim()) msg = raw.slice(0, 500);
+    }
+    throw new Error(msg);
+  }
+
+  const reader = res.body?.getReader();
+  if (!reader) throw new Error("无法读取生成响应流");
+
+  const dec = new TextDecoder();
+  let buf = "";
+  let result: MockPaperGenerateResult | null = null;
+
+  const handleLine = (line: string) => {
+    const t = line.trim();
+    if (!t) return;
+    let ev: MockPaperStreamEvent;
+    try {
+      ev = JSON.parse(t) as MockPaperStreamEvent;
+    } catch {
+      return;
+    }
+    onEvent(ev);
+    if (ev.type === "error") {
+      throw new Error(ev.message);
+    }
+    if (ev.type === "done") {
+      result = ev.paper;
+    }
+  };
+
+  try {
+    while (true) {
+      if (signal?.aborted) {
+        await reader.cancel().catch(() => {});
+        throw new Error("已取消生成");
+      }
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const lines = buf.split("\n");
+      buf = lines.pop() ?? "";
+      for (const line of lines) {
+        handleLine(line);
+      }
+    }
+    const tail = buf + dec.decode();
+    if (tail.trim()) {
+      for (const line of tail.split("\n")) {
+        handleLine(line);
+      }
+    }
+  } catch (e) {
+    if (signal?.aborted || (e instanceof DOMException && e.name === "AbortError")) {
+      throw new Error("已取消生成");
+    }
+    throw e;
+  }
+
+  if (signal?.aborted) {
+    throw new Error("已取消生成");
+  }
+
+  if (!result) {
+    throw new Error("连接已结束但未收到完整试卷数据");
+  }
+  return result;
 }
 
 export async function createMistake(payload: {

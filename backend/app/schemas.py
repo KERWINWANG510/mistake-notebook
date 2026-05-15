@@ -325,3 +325,68 @@ class PracticeCheckResult(BaseModel):
     feedback: str
     standard_answer: str
     explanation: str
+
+
+class MockPaperQuestionTypeItem(BaseModel):
+    """模拟卷可选题型（与年级、科目关联）。"""
+
+    code: str
+    name: str
+
+
+class MockPaperGenerateBody(BaseModel):
+    """模拟练习卷生成请求。"""
+
+    grade_level_id: str = Field(..., min_length=1, max_length=64)
+    subject_id: str = Field(..., min_length=1, max_length=64)
+    knowledge_tags: list[str] = Field(default_factory=list, max_length=12)
+    question_type_codes: list[str] = Field(default_factory=list, max_length=20)
+    counts_by_type: dict[str, int] = Field(default_factory=dict)
+    total_score: int | None = Field(None, ge=20, le=200)
+    use_answer_sheet: bool = Field(
+        False,
+        description="为 true 时配套生成答题卡页，题干不预留大段手写区；为 false 时在题干中预留作答空间",
+    )
+
+
+class MockPaperItemOut(BaseModel):
+    """单道小题（全局题号唯一）。"""
+
+    number: int = Field(..., ge=1, le=99)
+    minor_index: int | None = Field(None, ge=1, le=99, description="大题内小题序号，用于「（1）（2）」展示")
+    type_code: str
+    type_name: str
+    score: int = Field(..., ge=0, le=200)
+    stem: str
+
+
+class MockPaperSectionOut(BaseModel):
+    """大题（与真实试卷分区一致）。"""
+
+    section_order: int = Field(..., ge=1, le=20, description="大题序号，从 1 递增")
+    heading: str = Field(
+        ...,
+        min_length=1,
+        max_length=256,
+        description="大题标题行，如「第一大题  选择题（本大题共24分）」",
+    )
+    section_score: int = Field(..., ge=0, le=200, description="该大题总分，应与各小题 score 之和基本一致")
+    items: list[MockPaperItemOut] = Field(default_factory=list)
+
+
+class MockPaperAnswerOut(BaseModel):
+    number: int = Field(..., ge=1, le=99)
+    answer: str
+
+
+class MockPaperGenerateResult(BaseModel):
+    title: str
+    grade_name: str
+    subject_name: str
+    requested_total_score: int
+    actual_total_score: int
+    suggested_exam_minutes: int = Field(..., ge=10, le=240, description="AI 建议的本卷作答时间（分钟）")
+    use_answer_sheet: bool = False
+    instructions: str = ""
+    sections: list[MockPaperSectionOut]
+    answers: list[MockPaperAnswerOut]

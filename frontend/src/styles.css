@@ -495,22 +495,165 @@ body {
 }
 
 .app-header-inner {
-  max-width: 1080px;
+  max-width: 1280px;
   margin: 0 auto;
   width: 100%;
   min-width: 0;
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  column-gap: 12px;
 }
 
-.app-brand {
+.app-header-inner--narrow {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.app-header__brand {
   display: flex;
   align-items: center;
   gap: 10px;
-  flex: 1;
   min-width: 0;
+  flex-shrink: 0;
+}
+
+.app-header__brand-text {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  min-width: 0;
+}
+
+.app-header__trailing {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.app-header__logout {
+  font-size: 13px;
+  color: #64748b !important;
+}
+
+.app-header__logout:hover {
+  color: #4f46e5 !important;
+}
+
+.app-user-chip {
+  display: inline-flex;
+  cursor: default;
+  line-height: 0;
+}
+
+.app-user-chip__avatar {
+  font-size: 14px;
+  font-weight: 700;
+  background: linear-gradient(145deg, #6366f1, #8b5cf6) !important;
+  color: #fff !important;
+  box-shadow: 0 2px 10px rgba(99, 102, 241, 0.35);
+}
+
+/* 顶栏主导航：胶囊按钮 + 中间区域横向滚动，避免项多时被裁切 */
+.app-top-nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-width: 0;
+  padding: 4px 2px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x;
+  mask-image: linear-gradient(to right, transparent 0, #000 10px, #000 calc(100% - 10px), transparent 100%);
+}
+
+.app-top-nav::-webkit-scrollbar {
+  height: 3px;
+}
+
+.app-top-nav::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.45);
+  border-radius: 99px;
+}
+
+.app-top-nav__btn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 7px 13px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: #475569;
+  letter-spacing: -0.01em;
+  background: rgba(255, 255, 255, 0.55);
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 999px;
+  cursor: pointer;
+  transition:
+    background 0.18s ease,
+    border-color 0.18s ease,
+    color 0.18s ease,
+    box-shadow 0.18s ease;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.app-top-nav__btn:hover {
+  color: #334155;
+  background: rgba(255, 255, 255, 0.92);
+  border-color: rgba(99, 102, 241, 0.28);
+}
+
+.app-top-nav__btn:focus-visible {
+  outline: 2px solid rgba(99, 102, 241, 0.55);
+  outline-offset: 2px;
+}
+
+.app-top-nav__btn--active {
+  color: #4338ca;
+  background: linear-gradient(180deg, rgba(238, 242, 255, 0.95), rgba(224, 231, 255, 0.88));
+  border-color: rgba(129, 140, 248, 0.55);
+  box-shadow:
+    0 0 0 1px rgba(99, 102, 241, 0.12),
+    0 4px 14px rgba(99, 102, 241, 0.12);
+}
+
+.app-top-nav__ico {
+  display: flex;
+  opacity: 0.88;
+}
+
+.app-top-nav__btn--active .app-top-nav__ico {
+  opacity: 1;
+  color: #4f46e5;
+}
+
+.app-top-nav__ico :deep(.nav-icon) {
+  width: 17px;
+  height: 17px;
+}
+
+.app-top-nav__txt {
+  white-space: nowrap;
+}
+
+@media (max-width: 900px) {
+  .app-top-nav__btn {
+    padding: 6px 10px;
+    font-size: 12px;
+  }
+
+  .app-top-nav__ico :deep(.nav-icon) {
+    width: 16px;
+    height: 16px;
+  }
 }
 
 @media (max-width: 768px) {
@@ -523,8 +666,9 @@ body {
     gap: 8px;
   }
 
-  .app-brand {
+  .app-header__brand {
     gap: 8px;
+    min-width: 0;
   }
 
   .app-brand__mark {
@@ -800,5 +944,176 @@ body {
 @media (max-width: 768px) {
   .app-field-row__grow {
     flex: 1 1 100%;
+  }
+}
+
+/* 模拟卷：打印 A4（浏览器打印 / 另存为 PDF） */
+@media print {
+  @page {
+    size: A4;
+    margin: 12mm;
+  }
+
+  body {
+    background: #fff !important;
+  }
+
+  .app-header,
+  .app-nav-drawer,
+  .mock-paper-no-print {
+    display: none !important;
+  }
+
+  .app-shell .n-layout-content {
+    background: #fff !important;
+    overflow: visible !important;
+  }
+
+  /* 展开 NLayout / 页面根在打印时的高度链，避免参考答案等长内容被裁在视口内 */
+  .app-shell {
+    display: block !important;
+    height: auto !important;
+    min-height: auto !important;
+    overflow: visible !important;
+  }
+
+  .app-shell .n-layout-scroll-container {
+    flex: none !important;
+    min-height: auto !important;
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
+  .app-shell .n-scrollbar,
+  .app-shell .n-scrollbar-container,
+  .app-shell .n-scrollbar-content {
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
+  .page-root {
+    flex: none !important;
+    min-height: auto !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  html,
+  body,
+  #app {
+    height: auto !important;
+    overflow: visible !important;
+    max-height: none !important;
+  }
+
+  html::-webkit-scrollbar,
+  body::-webkit-scrollbar,
+  #app::-webkit-scrollbar {
+    display: none !important;
+    width: 0 !important;
+    height: 0 !important;
+  }
+
+  .app-shell,
+  .n-layout {
+    overflow: visible !important;
+    height: auto !important;
+    max-height: none !important;
+    min-height: auto !important;
+  }
+
+  .app-content {
+    overflow: visible !important;
+    overflow-x: visible !important;
+    overflow-y: visible !important;
+    max-height: none !important;
+    flex: none !important;
+    min-height: auto !important;
+    height: auto !important;
+    padding-bottom: 0 !important;
+  }
+
+  .mock-paper-page,
+  .mock-paper-layout,
+  .mock-paper-main,
+  .mock-paper-result {
+    overflow: visible !important;
+    max-height: none !important;
+    height: auto !important;
+  }
+
+  .mock-paper-main__scroll,
+  .mock-paper-pdf-root {
+    max-height: none !important;
+    min-height: auto !important;
+    height: auto !important;
+    overflow: visible !important;
+    scrollbar-width: none !important;
+    -ms-overflow-style: none !important;
+  }
+
+  .mock-paper-pdf-root,
+  .mock-paper-print-stack {
+    display: block !important;
+  }
+
+  .mock-paper-answers-block,
+  .mock-paper-ans,
+  .mock-paper-ans__txt {
+    overflow: visible !important;
+    max-height: none !important;
+  }
+
+  .mock-paper-main__scroll::-webkit-scrollbar,
+  .mock-paper-pdf-root::-webkit-scrollbar,
+  .app-content::-webkit-scrollbar,
+  .app-shell .n-layout-scroll-container::-webkit-scrollbar {
+    display: none !important;
+    width: 0 !important;
+    height: 0 !important;
+  }
+
+  .mock-paper-a4 {
+    max-width: none !important;
+    width: auto !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    background: #fff !important;
+    break-inside: auto;
+    page-break-inside: auto;
+  }
+
+  .mock-paper-q {
+    break-inside: auto;
+    page-break-inside: auto;
+  }
+
+  .mock-paper-section {
+    break-inside: auto;
+    page-break-inside: auto;
+  }
+
+  .mock-paper-ans {
+    break-inside: auto;
+    page-break-inside: auto;
+  }
+
+  .mock-paper-answer-sheet-block {
+    page-break-before: always;
+    break-before: page;
+  }
+
+  .mock-paper-answers-block {
+    page-break-before: always;
+    break-before: page;
+  }
+
+  html.mock-paper-print-hide-answers .mock-paper-answers-block {
+    display: none !important;
   }
 }
