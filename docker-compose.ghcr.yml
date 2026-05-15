@@ -1,0 +1,26 @@
+# 使用 GitHub Container Registry（GHCR）上的单镜像预构建包。
+# 推送版本标签 v* 后由 .github/workflows/docker-publish.yml 构建。
+#
+# 镜像：ghcr.io/<owner>/<repo 全小写>:<标签>
+# 例如：ghcr.io/kerwinwang510/mistake-notebook:v1.1.0
+#
+# 私有包需先登录：echo <TOKEN> | docker login ghcr.io -u <用户名> --password-stdin
+#
+# 启动：docker compose -f docker-compose.ghcr.yml up -d
+# 访问：http://localhost:8080
+
+services:
+  app:
+    image: ghcr.io/${GHCR_REPO_LC:-kerwinwang510/mistake-notebook}:${MISTAKE_IMAGE_TAG:-latest}
+    ports:
+      - "8080:80"
+    environment:
+      APP_SECRET: ${APP_SECRET:-please-change-app-secret}
+      APP_VERSION: ${APP_VERSION:-}
+      DATABASE_URL: sqlite+aiosqlite:////data/app.db
+      UPLOAD_DIR: /data/uploads
+    volumes:
+      - mistake_data:/data
+
+volumes:
+  mistake_data:

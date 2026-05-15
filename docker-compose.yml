@@ -1,12 +1,13 @@
 services:
-  api:
+  app:
     build:
       context: .
-      dockerfile: docker/Dockerfile.api
+      dockerfile: docker/Dockerfile
       args:
         APP_VERSION: ${APP_VERSION:-dev}
+        VITE_APP_VERSION: ${APP_VERSION:-dev}
     ports:
-      - "8000:8000"
+      - "8080:80"
     environment:
       APP_SECRET: ${APP_SECRET:-please-change-app-secret}
       APP_VERSION: ${APP_VERSION:-dev}
@@ -15,17 +16,6 @@ services:
       # CORS_ORIGINS: 逗号分隔白名单；不设置或留空则不限制跨域来源
     volumes:
       - mistake_data:/data
-
-  web:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.web
-      args:
-        VITE_APP_VERSION: ${APP_VERSION:-dev}
-    ports:
-      - "8080:80"
-    depends_on:
-      - api
 
 volumes:
   mistake_data:

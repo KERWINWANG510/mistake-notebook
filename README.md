@@ -56,20 +56,23 @@ npm run build
 
 ## Docker 部署
 
+单容器镜像内同时包含 **FastAPI（监听本机 8000）** 与 **Nginx（对外 80）**：静态前端由 Nginx 托管，`/api/` 反代至本机后端。对外只需映射 **一个端口**（默认 `8080:80`）。
+
 ### `docker-compose.yml` 示例
 
 仓库根目录已包含 `docker-compose.yml`，内容如下（**从源码构建**）：
 
 ```yaml
 services:
-  api:
+  app:
     build:
       context: .
-      dockerfile: docker/Dockerfile.api
+      dockerfile: docker/Dockerfile
       args:
         APP_VERSION: ${APP_VERSION:-dev}
+        VITE_APP_VERSION: ${APP_VERSION:-dev}
     ports:
-      - "8000:8000"
+      - "8080:80"
     environment:
       APP_SECRET: ${APP_SECRET:-please-change-app-secret}
       APP_VERSION: ${APP_VERSION:-dev}
@@ -79,29 +82,18 @@ services:
     volumes:
       - mistake_data:/data
 
-  web:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.web
-      args:
-        VITE_APP_VERSION: ${APP_VERSION:-dev}
-    ports:
-      - "8080:80"
-    depends_on:
-      - api
-
 volumes:
   mistake_data:
 ```
 
-使用 **GHCR 预构建镜像** 时，可将 `build` 改为 `image`（将 `<owner>` 换成你的 GitHub 用户名或组织名）：
+使用 **GHCR 预构建镜像** 时，可将 `build` 改为 `image`（将 `<owner>/<repo>` 换成你的 GitHub 仓库路径全小写，与 GHCR 包名一致）：
 
 ```yaml
 services:
-  api:
-    image: ghcr.io/<owner>/mistake-notebook-api:v1.0.0
+  app:
+    image: ghcr.io/<owner>/mistake-notebook:v1.0.0
     ports:
-      - "8000:8000"
+      - "8080:80"
     environment:
       APP_SECRET: ${APP_SECRET:-please-change-app-secret}
       APP_VERSION: "1.0.0"
@@ -111,16 +103,11 @@ services:
     volumes:
       - mistake_data:/data
 
-  web:
-    image: ghcr.io/<owner>/mistake-notebook-web:v1.0.0
-    ports:
-      - "8080:80"
-    depends_on:
-      - api
-
 volumes:
   mistake_data:
 ```
+
+也可直接使用仓库中的 `docker-compose.ghcr.yml`（通过环境变量指定镜像坐标与标签）。
 
 也可在项目根目录创建 `.env` 供 Compose 读取（勿提交到 Git）：
 
@@ -147,8 +134,7 @@ docker compose pull
 docker compose up -d
 ```
 
-- **Web**：`http://localhost:8080`（Nginx 托管静态页并反代 `/api`）
-- **API**：`http://localhost:8000`（也可仅内网访问，由 Nginx 代理）
+- **应用**：`http://localhost:8080`（Nginx 托管静态页；浏览器通过同域 `/api/` 访问后端，容器内反代至本机 `127.0.0.1:8000`）
 
 数据与上传文件保存在卷 `mistake_data`（容器内 `/data`）。首次部署请设置 `APP_SECRET`。
 
@@ -158,10 +144,9 @@ docker compose up -d
 
 推送 Git 标签 `v*` 后，GitHub Actions 会自动构建并推送镜像到 [GitHub Container Registry](https://docs.github.com/zh/packages/working-with-a-github-packages-registry/working-with-the-container-registry)：
 
-| 镜像 | 示例标签 |
-|------|----------|
-| API | `ghcr.io/<owner>/mistake-notebook-api:v1.0.0` |
-| Web | `ghcr.io/<owner>/mistake-notebook-web:v1.0.0` |
+| 说明 | 示例 |
+|------|------|
+| 单镜像（前后端一体） | `ghcr.io/<owner>/mistake-notebook:v1.0.0` |
 
 标签 `v1.0.0` 会解析为应用版本 `1.0.0`，并同时打上 `v1.0.0`、`1.0.0`、`latest` 三个镜像标签。
 
@@ -179,7 +164,7 @@ git push origin v1.0.0
 工作流文件：`.github/workflows/docker-publish.yml`
 
 - **触发条件**：推送符合 `v*` 的 Git 标签
-- **构建内容**：`docker/Dockerfile.api`、`docker/Dockerfile.web`
+- **构建内容**：`docker/Dockerfile`（多阶段：前端构建 + Python + Nginx + `tini` 进程管理）
 - **版本注入**：构建参数 `APP_VERSION` / `VITE_APP_VERSION`（去掉标签前缀 `v`）
 - **推送目标**：`ghcr.io`，使用 `GITHUB_TOKEN` 登录
 

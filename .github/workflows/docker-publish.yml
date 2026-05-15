@@ -39,32 +39,18 @@ jobs:
       - name: 设置 Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: 构建并推送 API 镜像
+      - name: 构建并推送单镜像（Web + API）
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: docker/Dockerfile.api
+          file: docker/Dockerfile
           push: true
           build-args: |
             APP_VERSION=${{ steps.meta.outputs.version }}
-          tags: |
-            ${{ env.REGISTRY }}/${{ steps.meta.outputs.repo }}-api:${{ steps.meta.outputs.tag }}
-            ${{ env.REGISTRY }}/${{ steps.meta.outputs.repo }}-api:${{ steps.meta.outputs.version }}
-            ${{ env.REGISTRY }}/${{ steps.meta.outputs.repo }}-api:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: 构建并推送 Web 镜像
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: docker/Dockerfile.web
-          push: true
-          build-args: |
             VITE_APP_VERSION=${{ steps.meta.outputs.version }}
           tags: |
-            ${{ env.REGISTRY }}/${{ steps.meta.outputs.repo }}-web:${{ steps.meta.outputs.tag }}
-            ${{ env.REGISTRY }}/${{ steps.meta.outputs.repo }}-web:${{ steps.meta.outputs.version }}
-            ${{ env.REGISTRY }}/${{ steps.meta.outputs.repo }}-web:latest
+            ${{ env.REGISTRY }}/${{ steps.meta.outputs.repo }}:${{ steps.meta.outputs.tag }}
+            ${{ env.REGISTRY }}/${{ steps.meta.outputs.repo }}:${{ steps.meta.outputs.version }}
+            ${{ env.REGISTRY }}/${{ steps.meta.outputs.repo }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
