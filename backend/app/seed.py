@@ -1,9 +1,9 @@
 """启动时种子数据：内置科目、年级、AI 预设。"""
 
-from sqlalchemy import select, text
+from sqlalchemy import select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import AiProviderPreset, GradeLevel, GradeSubject, Mistake, Subject, User
+from app.models import AiProviderConfig, AiProviderPreset, GradeLevel, GradeSubject, Mistake, Subject, User
 from app.services.password import hash_password
 
 
@@ -27,13 +27,13 @@ PRESETS: list[dict] = [
         "sort_order": 20,
     },
     {
-        "id": "moonshot",
-        "display_name": "Moonshot（Kimi）",
+        "id": "kimi",
+        "display_name": "Kimi（月之暗面 Moonshot）",
         "protocol": "openai_compatible",
         "default_base_url": "https://api.moonshot.cn/v1",
         "models_path": "/models",
         "chat_path": "/chat/completions",
-        "sort_order": 30,
+        "sort_order": 25,
     },
     {
         "id": "zhipu",
@@ -228,12 +228,42 @@ async def ensure_builtin_grades(session: AsyncSession) -> None:
     await session.commit()
 
 
+async def _retire_moonshot_preset(session: AsyncSession) -> None:
+    """内置已移除 moonshot：将仍引用 moonshot 的接入配置迁到 kimi，再删除预设行。"""
+    moon = await session.get(AiProviderPreset, "moonshot")
+    if moon is None:
+        return
+    await session.execute(
+        update(AiProviderConfig).where(AiProviderConfig.preset_id == "moonshot").values(preset_id="kimi")
+    )
+    await session.execute(
+        update(AiProviderConfig)
+        .where(AiProviderConfig.vision_preset_id == "moonshot")
+        .values(vision_preset_id="kimi")
+    )
+    await session.execute(
+        update(AiProviderConfig)
+        .where(AiProviderConfig.solve_preset_id == "moonshot")
+        .values(solve_preset_id="kimi")
+    )
+    await session.delete(moon)
+
+
 async def ensure_missing_presets(session: AsyncSession) -> None:
-    """为已存在的老库补充新增的厂商预设（如阿里百炼）。"""
+    """为已存在的老库补充或同步内置厂商预设；移除 moonshot 并迁到 kimi。"""
     for p in PRESETS:
         row = await session.get(AiProviderPreset, p["id"])
         if row is None:
             session.add(AiProviderPreset(**p))
+        else:
+            row.display_name = p["display_name"]
+            row.protocol = p["protocol"]
+            row.default_base_url = p.get("default_base_url")
+            row.models_path = p["models_path"]
+            row.chat_path = p["chat_path"]
+            row.sort_order = p["sort_order"]
+    await session.flush()
+    await _retire_moonshot_preset(session)
     await session.commit()
 
 

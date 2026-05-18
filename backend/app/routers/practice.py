@@ -1,5 +1,6 @@
 import base64
 import json
+import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -243,6 +244,10 @@ async def check_practice(
 
 
 _MAX_MOCK_QUESTIONS = 28
+_MOCK_JSON_RESPONSE_FORMAT: dict[str, str] = {"type": "json_object"}
+# 流式 NDJSON 刷新间隔：缩短浏览器首包等待与长时间无新字时的卡顿感
+_MOCK_STREAM_FLUSH_CHARS = 48
+_MOCK_STREAM_FLUSH_SEC = 0.12
 
 
 def _ndline(obj: dict) -> bytes:
@@ -387,23 +392,19 @@ def _sanitize_counts_by_type(raw: dict[str, int] | None, allowed: set[str]) -> d
 async def _resolve_grade_subject(
     db: AsyncSession, grade_level_id: str, subject_id: str
 ) -> tuple[GradeLevel, Subject]:
-    gr = (await db.execute(select(GradeLevel).where(GradeLevel.id == grade_level_id))).scalar_one_or_none()
-    if gr is None:
-        raise HTTPException(status_code=404, detail="年级不存在")
-    su = (await db.execute(select(Subject).where(Subject.id == subject_id))).scalar_one_or_none()
-    if su is None:
-        raise HTTPException(status_code=404, detail="科目不存在")
     gs = (
         await db.execute(
-            select(GradeSubject).where(
+            select(GradeSubject)
+            .where(
                 GradeSubject.grade_level_id == grade_level_id,
                 GradeSubject.subject_id == subject_id,
             )
+            .options(joinedload(GradeSubject.grade), joinedload(GradeSubject.subject))
         )
     ).scalar_one_or_none()
     if gs is None:
         raise HTTPException(status_code=400, detail="该年级未关联此科目，请在「年级科目」中确认课表")
-    return gr, su
+    return gs.grade, gs.subject
 
 
 def _parse_suggested_exam_minutes(obj: dict, *, n_questions: int) -> int:
@@ -419,36 +420,22 @@ def _parse_suggested_exam_minutes(obj: dict, *, n_questions: int) -> int:
 
 
 def _mock_paper_system_prompt(use_answer_sheet: bool) -> str:
-    sheet_mode = (
-        "本次组卷将配套「答题卡」页面由系统排版：各小题 stem 中**不要**预留大面积手写空白或整段「答：____」作答区；"
-        "选择题仅在 stem 中写清题干与选项字母；填空题用题干内下划线标空即可；主观题题干简练，勿在 stem 末尾附多行横线。"
+    sheet = (
+        "配套答题卡：stem 勿留大面积手写区；选择/填空在题干内完成；主观题 stem 简练。"
         if use_answer_sheet
-        else "本次组卷**不使用**答题卡，考生直接在试卷上作答：每道小题 stem 末尾须留出**清晰可见的作答空间**"
-        "（如换行后写「答：」并附与分值、题型匹配的横线或空白，主观题至少 3～6 行书写区；选择题可仅写选项无需大空白）。"
+        else "无答题卡：主观题 stem 末尾留清晰作答区（换行+「答：」+横线，约3～6行）；选择/填空在题干内。"
     )
     return (
-        "你是中小学命题教师。请根据用户要求生成一份「模拟练习卷」（仅练习题，不要真实考试卷名或涉密内容）。"
-        "题目应贴合年级认知与科目特点；表述清晰、可独立印刷作答；结构须与真实纸笔考试一致（按大题分区）。"
-        "题干 stem 可使用换行分段、**加粗**；选择题请把选项完整写在 stem 内（如 A. B. C. D.）。"
-        "考生填写姓名、年级、学号的横线由系统在卷首统一印刷，你不要在 JSON 中输出这些字段。"
-        + sheet_mode
-        + "只输出一个 JSON 对象，不要 Markdown 代码块。字段为："
-        'title（试卷标题，字符串）, '
-        'instructions（卷首说明或注意事项，可为空字符串）, '
-        "suggested_exam_minutes（整数，建议考生完成本卷的作答时间，单位分钟，须结合年级、题量与难度给出合理值，常见约 40～100）, "
-        "sections（大题数组，每项含："
-        "section_order 整数从 1 递增；"
-        "heading 字符串，完整大题标题行，须含大题序号与分值说明，例如「第一大题  选择题（本大题共24分）」；"
-        "section_score 整数，该大题总分，须等于该大题下各小题 score 之和；"
-        "questions 数组，该大题下的小题，每项含："
-        "number 全局题号从 1 开始连续递增（跨大题连续）；"
-        "minor_index 整数，该大题内小题序号从 1 递增（可选但推荐）；"
-        "type_code 题型编码；score 小题分值；stem 题干字符串"
-        "）, "
-        'answers（数组，每项含 number 与全局题号对应、answer 参考答案或要点）。'
-        "要求：所有大题 questions 中 number 从 1 到 N 连续不重复；每题 type_code 须为允许的编码；"
-        f"小题总数不超过 {_MAX_MOCK_QUESTIONS} 道；各大题须有小题若干且 heading 须体现「第几大题」与题型或内容类型；"
-        "各小题 score 之和应等于用户给定卷面总分（可在 ±2 分内微调为整数）；不得输出 JSON 以外的文字。"
+        "你是中小学命题教师，生成模拟练习卷（勿用真实统考卷名）。"
+        + sheet
+        + " stem 可换行、**加粗**；选项写在 stem 内（A. B. …）。卷首姓名/学号由系统印刷，JSON 勿含。"
+        " 只输出一个 JSON 对象，无 Markdown 围栏。字段："
+        "title, instructions（可空）, suggested_exam_minutes（整数，结合题量合理，约40～100）, "
+        "sections（大题数组：section_order 从1递增；heading 含「第几大题」与分值说明；"
+        "section_score=该大题各题 score 之和；questions 含 number 全局1..N连续、minor_index、"
+        "type_code、score、stem）, answers（number 与全局题号对应、answer）。"
+        f" type_code 仅从用户允许列表选取；总题数≤{_MAX_MOCK_QUESTIONS}；"
+        "各小题 score 之和≈卷面总分（±2分）；勿输出 JSON 外文字。"
     )
 
 
@@ -464,34 +451,24 @@ def _build_mock_paper_user_message(
     total_score: int,
     use_answer_sheet: bool,
 ) -> str:
-    type_lines = [f"- {c}（{question_type_label(c)}）" for c in active_type_codes]
     counts_lines: list[str] = []
     for code, n in sorted(counts_by_type.items(), key=lambda x: x[0]):
-        counts_lines.append(f"- {question_type_label(code)}：{n} 道")
+        counts_lines.append(f"{question_type_label(code)}：{n} 道")
 
     parts = [
-        f"年级：{grade_name}（内部 level={grade_level}，命题时勿照抄此说明）",
+        f"年级：{grade_name}（level={grade_level}，勿照抄）",
         f"科目：{subject_name}",
         f"卷面总分：{total_score} 分",
-        f"是否使用答题卡（由系统排版作答区）：{'是' if use_answer_sheet else '否'}。请严格按系统说明中的作答区要求编写 stem。",
-        "允许使用的题型编码 type_code 必须且只能从下列之中选取（每题一项）：",
-        "\n".join(type_lines),
+        f"答题卡：{'是' if use_answer_sheet else '否'}（按系统说明写 stem）",
+        "允许 type_code：" + "、".join(active_type_codes),
     ]
     if tags:
-        parts.append("知识点侧重（可适当体现，不必每题都点题）：" + "、".join(tags))
+        parts.append("知识点侧重：" + "、".join(tags))
     if counts_lines:
-        parts.append("用户对各题型题量的期望（尽量满足，若与总分或篇幅冲突可微调并仍用允许 type_code）：")
-        parts.append("\n".join(counts_lines))
+        parts.append("各题型题量期望：" + "；".join(counts_lines))
     else:
-        parts.append("用户未指定各题型题量：请自行搭配合理题量，覆盖所选题型中的主要类型。")
-    parts.append(
-        "请使用 sections 输出至少 2 个大题（如选择、填空、解答等），每道小题放在对应大题的 questions 中，"
-        "并在 heading 中标明本大题共多少分；勿再使用扁平的 items 字段（除非仅能出一道大题时再退化为单大题）。"
-    )
-    parts.append(
-        "若用户未勾选全部允许题型，则仅使用其已勾选的题型编码组卷；"
-        "若已勾选多种题型，请尽量覆盖多种，避免单一题型占比过高。"
-    )
+        parts.append("未指定各题型题量：自行搭配，覆盖主要已选题型。")
+    parts.append("至少 2 个大题（sections），heading 标明分值；全局题号连续。")
     return "\n\n".join(parts)
 
 
@@ -722,6 +699,7 @@ async def generate_mock_paper(
         ctx.messages,
         temperature=0.35,
         request_timeout=180.0,
+        response_format=_MOCK_JSON_RESPONSE_FORMAT,
     )
     if not ok or content is None:
         raise HTTPException(status_code=502, detail=content or "出题模型调用失败")
@@ -736,12 +714,15 @@ async def generate_mock_paper_stream(
 ) -> StreamingResponse:
     """模拟卷流式生成：NDJSON 行协议（phase / delta / done / error）。"""
 
-    ctx = await _mock_paper_load_context(db, body)
-
     async def ndjson_gen():
         try:
+            yield _ndline({"type": "phase", "label": "正在准备组卷…"})
+            ctx = await _mock_paper_load_context(db, body)
             yield _ndline({"type": "phase", "label": "正在生成试卷…"})
             acc = ""
+            pending = ""
+            last_flush = time.monotonic()
+
             async for delta in chat_completion_stream(
                 ctx.solve_base,
                 ctx.solve_chat,
@@ -749,9 +730,19 @@ async def generate_mock_paper_stream(
                 ctx.solve_model,
                 ctx.messages,
                 temperature=0.35,
+                response_format=_MOCK_JSON_RESPONSE_FORMAT,
             ):
                 acc += delta
-                yield _ndline({"type": "delta", "text": delta})
+                pending += delta
+                now = time.monotonic()
+                if len(pending) >= _MOCK_STREAM_FLUSH_CHARS or (now - last_flush) >= _MOCK_STREAM_FLUSH_SEC:
+                    yield _ndline({"type": "delta", "text": pending})
+                    pending = ""
+                    last_flush = now
+
+            if pending:
+                yield _ndline({"type": "delta", "text": pending})
+
             try:
                 result = _mock_paper_build_result_from_content(acc, ctx=ctx)
             except HTTPException as e:
@@ -763,4 +754,11 @@ async def generate_mock_paper_stream(
         except Exception as e:
             yield _ndline({"type": "error", "message": f"生成失败：{e}"})
 
-    return StreamingResponse(ndjson_gen(), media_type="application/x-ndjson")
+    return StreamingResponse(
+        ndjson_gen(),
+        media_type="application/x-ndjson; charset=utf-8",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )

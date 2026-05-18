@@ -22,6 +22,9 @@ const auth = useAuthStore();
 type ViewMode = "subjects" | "mistakes";
 type MasteryFilter = "unmastered" | "mastered" | "all";
 
+/** 年级筛选：全部年级（与具体 grade.id 区分） */
+const GRADE_ALL = "__all__";
+
 const loading = ref(true);
 const mistakesLoading = ref(false);
 const grades = ref<Grade[]>([]);
@@ -42,7 +45,11 @@ let initializing = true;
 
 function hubQueryFromState(): Record<string, string> {
   const query: Record<string, string> = {};
-  if (selectedGradeId.value) query.grade = selectedGradeId.value;
+  if (selectedGradeId.value === GRADE_ALL) {
+    query.grade = "all";
+  } else if (selectedGradeId.value) {
+    query.grade = selectedGradeId.value;
+  }
   if (viewMode.value === "mistakes" && activeSubject.value) {
     query.subject = activeSubject.value.subject_id;
     if (selectedTag.value) query.tag = selectedTag.value;
@@ -75,7 +82,9 @@ function applyRouteQuery() {
   }
 
   const qGrade = typeof route.query.grade === "string" ? route.query.grade : null;
-  if (qGrade && grades.value.some((g) => g.id === qGrade)) {
+  if (qGrade === "all") {
+    selectedGradeId.value = GRADE_ALL;
+  } else if (qGrade && grades.value.some((g) => g.id === qGrade)) {
     selectedGradeId.value = qGrade;
   }
 
@@ -94,9 +103,18 @@ function applyRouteQuery() {
   mistakes.value = [];
 }
 
-const gradeOptions = computed(() => grades.value.map((g) => ({ label: g.name, value: g.id })));
+const isAllGrades = computed(() => selectedGradeId.value === GRADE_ALL);
 
-const selectedGrade = computed(() => grades.value.find((g) => g.id === selectedGradeId.value) ?? null);
+const gradeOptions = computed(() => [
+  { label: "全部", value: GRADE_ALL },
+  ...grades.value.map((g) => ({ label: g.name, value: g.id })),
+]);
+
+const selectedGrade = computed(() =>
+  isAllGrades.value ? null : (grades.value.find((g) => g.id === selectedGradeId.value) ?? null),
+);
+
+const selectedGradeLabel = computed(() => (isAllGrades.value ? "全部年级" : (selectedGrade.value?.name ?? "")));
 
 const totalMistakeCount = computed(() => subjectSummaries.value.reduce((sum, s) => sum + s.mistake_count, 0));
 
@@ -104,6 +122,9 @@ const gradeHint = computed(() => {
   const user = auth.me;
   if (!user?.education_stage || user.enrollment_year == null) {
     return "选择年级查看科目";
+  }
+  if (isAllGrades.value) {
+    return "查看全部年级的错题";
   }
   if (selectedGradeId.value === inferredGradeId.value && inferredGradeId.value) {
     return "已按档案自动推断年级";
@@ -113,12 +134,12 @@ const gradeHint = computed(() => {
 
 const headerSubtitle = computed(() => {
   if (viewMode.value === "mistakes" && activeSubject.value) {
-    const base = `${selectedGrade.value?.name ?? ""} · ${activeSubject.value.subject_name}`;
+    const base = `${selectedGradeLabel.value} · ${activeSubject.value.subject_name}`;
     if (selectedTag.value) return `${base} · 标签：${selectedTag.value}`;
     return `${base} · ${activeSubject.value.mistake_count} 道错题`;
   }
   if (totalMistakeCount.value > 0) {
-    return `${selectedGrade.value?.name ?? "当前年级"} · 共 ${totalMistakeCount.value} 道错题`;
+    return `${selectedGradeLabel.value || "当前年级"} · 共 ${totalMistakeCount.value} 道错题`;
   }
   return gradeHint.value;
 });
@@ -147,7 +168,8 @@ async function loadSubjectSummaries() {
   }
   loading.value = true;
   try {
-    subjectSummaries.value = await fetchSubjectMistakeSummary(selectedGradeId.value);
+    const gradeParam = isAllGrades.value ? undefined : selectedGradeId.value;
+    subjectSummaries.value = await fetchSubjectMistakeSummary(gradeParam);
   } catch (e) {
     message.error((e as Error).message);
     subjectSummaries.value = [];
@@ -163,12 +185,15 @@ async function loadMistakes() {
   }
   mistakesLoading.value = true;
   try {
-    mistakes.value = await fetchMistakes({
-      grade_level_id: selectedGradeId.value,
+    const params: Parameters<typeof fetchMistakes>[0] = {
       subject_id: activeSubject.value.subject_id,
       mastery: masteryFilter.value,
       knowledge_tag: selectedTag.value ?? undefined,
-    });
+    };
+    if (!isAllGrades.value) {
+      params.grade_level_id = selectedGradeId.value;
+    }
+    mistakes.value = await fetchMistakes(params);
   } catch (e) {
     message.error((e as Error).message);
     mistakes.value = [];
@@ -184,7 +209,9 @@ async function init() {
     await loadGrades();
 
     const qGrade = typeof route.query.grade === "string" ? route.query.grade : null;
-    if (qGrade && grades.value.some((g) => g.id === qGrade)) {
+    if (qGrade === "all") {
+      selectedGradeId.value = GRADE_ALL;
+    } else if (qGrade && grades.value.some((g) => g.id === qGrade)) {
       selectedGradeId.value = qGrade;
     }
 
@@ -210,13 +237,23 @@ watch(
 
 watch(selectedGradeId, async () => {
   if (initializing) return;
-  if (viewMode.value === "mistakes") {
-    viewMode.value = "subjects";
-    activeSubject.value = null;
-    mistakes.value = [];
-  }
+  const wasMistakes = viewMode.value === "mistakes";
+  const subjectId = activeSubject.value?.subject_id;
   syncRouteQuery();
   await loadSubjectSummaries();
+  if (wasMistakes && subjectId) {
+    const summary = subjectSummaries.value.find((s) => s.subject_id === subjectId);
+    if (summary) {
+      activeSubject.value = summary;
+      await loadMistakes();
+      return;
+    }
+    backToSubjects();
+    return;
+  }
+  if (wasMistakes) {
+    backToSubjects();
+  }
 });
 
 watch(masteryFilter, () => {
@@ -298,7 +335,7 @@ function formatDate(iso: string) {
         'mistake-hub__header--subjects': viewMode === 'subjects',
         'mistake-hub__header--mistakes': viewMode === 'mistakes',
         'mistake-hub__header--grade-overridden':
-          inferredGradeId != null && selectedGradeId !== inferredGradeId,
+          !isAllGrades && inferredGradeId != null && selectedGradeId !== inferredGradeId,
       }"
     >
       <div class="mistake-hub__header-top">
@@ -336,7 +373,7 @@ function formatDate(iso: string) {
             placeholder="年级"
           />
           <NButton
-            v-if="inferredGradeId && selectedGradeId !== inferredGradeId"
+            v-if="!isAllGrades && inferredGradeId && selectedGradeId !== inferredGradeId"
             class="mistake-hub__reset-inferred"
             quaternary
             size="tiny"
@@ -399,8 +436,10 @@ function formatDate(iso: string) {
 
         <div v-else-if="!loading" class="mistake-hub__empty">
           <div class="mistake-hub__empty-icon">📚</div>
-          <p class="mistake-hub__empty-title">该年级暂无错题</p>
-          <p class="mistake-hub__empty-desc">切换其他年级查看，或录入第一道错题</p>
+          <p class="mistake-hub__empty-title">{{ isAllGrades ? "暂无错题" : "该年级暂无错题" }}</p>
+          <p class="mistake-hub__empty-desc">
+            {{ isAllGrades ? "录入第一道错题后将按科目展示" : "切换其他年级查看，或录入第一道错题" }}
+          </p>
           <NButton type="primary" @click="router.push('/mistakes/new')">去录入</NButton>
         </div>
       </section>
@@ -425,6 +464,9 @@ function formatDate(iso: string) {
             <div class="mistake-tile__top">
               <span class="mistake-tile__date">{{ formatDate(m.created_at) }}</span>
               <div class="mistake-tile__badges">
+                <NTag v-if="isAllGrades && m.grade_name" size="tiny" :bordered="false" type="default">
+                  {{ m.grade_name }}
+                </NTag>
                 <NTag
                   size="small"
                   :type="m.is_mastered ? 'success' : 'warning'"

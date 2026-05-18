@@ -78,7 +78,7 @@ async function markMastered() {
     <div v-if="row" class="mistake-detail page-root page-root--fixed-actions">
       <header class="page-header mistake-detail__header">
         <h1 class="page-header__title">错题详情</h1>
-        <p class="page-header__desc">仅供查看与复习；需要修改请返回列表点击「编辑」。</p>
+        <p class="page-header__desc">用于查看与复习；需要修改请点击底部「编辑」，也可在错题列表中编辑。</p>
       </header>
 
       <NCard class="surface-card mistake-detail__card" size="small" :bordered="false">
@@ -292,20 +292,30 @@ async function markMastered() {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-start;
-  gap: 6px 10px;
-  padding: 6px 10px 8px;
+  gap: 6px 8px;
+  padding: 8px 10px;
 }
 
 .mistake-detail__meta-tags-row > .mistake-detail__meta-k {
-  padding-top: 3px;
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  min-height: 22px;
+  line-height: 1;
 }
 
 .mistake-detail__meta-tags {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 5px;
   flex: 1;
   min-width: 0;
+  min-height: 22px;
+}
+
+.mistake-detail__meta-tags :deep(.n-tag) {
+  margin: 0;
 }
 
 .mistake-detail__knowledge-tag {
@@ -316,9 +326,14 @@ async function markMastered() {
 }
 
 .mistake-detail__meta-empty {
+  display: inline-flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  min-height: 22px;
   font-size: 12px;
+  line-height: 1;
   color: #94a3b8;
-  padding-top: 2px;
 }
 
 @media (max-width: 768px) {

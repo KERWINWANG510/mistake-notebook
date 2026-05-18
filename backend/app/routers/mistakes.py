@@ -83,12 +83,96 @@ async def list_mistakes(
     return [_mistake_out(m) for m in rows]
 
 
+def _tag_counts_from_rows(
+    tag_rows: list[tuple[str, list | None]],
+) -> dict[str, dict[str, int]]:
+    tags_by_subject: dict[str, dict[str, int]] = {}
+    for subject_id, ktags in tag_rows:
+        for t in ktags or []:
+            if not t:
+                continue
+            bucket = tags_by_subject.setdefault(subject_id, {})
+            bucket[t] = bucket.get(t, 0) + 1
+    return tags_by_subject
+
+
+def _summaries_from_tag_map(
+    tag_map: dict[str, dict[str, int]],
+    counts: dict[str, int],
+    *,
+    subject_meta: dict[str, tuple[str, str | None]],
+) -> list[SubjectMistakeSummary]:
+    def tag_counts_for(subject_id: str) -> list[KnowledgeTagCount]:
+        items = tag_map.get(subject_id, {})
+        return [
+            KnowledgeTagCount(tag=name, count=cnt)
+            for name, cnt in sorted(items.items(), key=lambda x: (-x[1], x[0]))
+        ]
+
+    rows = [
+        SubjectMistakeSummary(
+            subject_id=sid,
+            subject_name=subject_meta[sid][0],
+            subject_code=subject_meta[sid][1],
+            mistake_count=int(counts.get(sid, 0)),
+            knowledge_tags=tag_counts_for(sid),
+        )
+        for sid in counts
+        if sid in subject_meta and counts.get(sid, 0) > 0
+    ]
+    rows.sort(key=lambda r: (-r.mistake_count, r.subject_name))
+    return rows
+
+
+async def _subject_mistake_summary_all_grades(
+    user: User,
+    db: AsyncSession,
+) -> list[SubjectMistakeSummary]:
+    """当前用户各科目未掌握错题汇总（不限年级）。"""
+    counts_q = (
+        select(
+            Mistake.subject_id,
+            func.count(Mistake.id).label("mistake_count"),
+        )
+        .where(
+            Mistake.user_id == user.id,
+            Mistake.is_mastered.is_(False),
+        )
+        .group_by(Mistake.subject_id)
+    )
+    count_rows = (await db.execute(counts_q)).all()
+    counts = {row.subject_id: row.mistake_count for row in count_rows}
+    if not counts:
+        return []
+
+    subject_ids = list(counts.keys())
+    subjects = (
+        await db.execute(select(Subject.id, Subject.name, Subject.code).where(Subject.id.in_(subject_ids)))
+    ).all()
+    subject_meta = {row.id: (row.name, row.code) for row in subjects}
+
+    tag_rows = (
+        await db.execute(
+            select(Mistake.subject_id, Mistake.knowledge_tags).where(
+                Mistake.user_id == user.id,
+                Mistake.is_mastered.is_(False),
+                Mistake.subject_id.in_(subject_ids),
+            )
+        )
+    ).all()
+    tag_map = _tag_counts_from_rows(tag_rows)
+    return _summaries_from_tag_map(tag_map, counts, subject_meta=subject_meta)
+
+
 @router.get("/summary/by-subject", response_model=list[SubjectMistakeSummary])
 async def subject_mistake_summary(
-    grade_level_id: str,
+    grade_level_id: str | None = None,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> list[SubjectMistakeSummary]:
+    if grade_level_id is None or not str(grade_level_id).strip():
+        return await _subject_mistake_summary_all_grades(user, db)
+
     if not await db.get(GradeLevel, grade_level_id):
         raise HTTPException(status_code=400, detail="年级不存在")
 
@@ -124,13 +208,7 @@ async def subject_mistake_summary(
             )
         )
     ).all()
-    tags_by_subject: dict[str, dict[str, int]] = {}
-    for subject_id, ktags in tag_rows:
-        for t in ktags or []:
-            if not t:
-                continue
-            bucket = tags_by_subject.setdefault(subject_id, {})
-            bucket[t] = bucket.get(t, 0) + 1
+    tags_by_subject = _tag_counts_from_rows(tag_rows)
 
     def tag_counts_for(subject_id: str) -> list[KnowledgeTagCount]:
         items = tags_by_subject.get(subject_id, {})

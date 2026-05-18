@@ -280,9 +280,12 @@ export async function fetchMistakes(params?: {
   return data;
 }
 
-export async function fetchSubjectMistakeSummary(gradeLevelId: string) {
+/** 按科目汇总未掌握错题；不传 gradeLevelId 表示全部年级。 */
+export async function fetchSubjectMistakeSummary(gradeLevelId?: string) {
+  const params: Record<string, string> = {};
+  if (gradeLevelId) params.grade_level_id = gradeLevelId;
   const { data } = await http.get<SubjectMistakeSummary[]>("/api/mistakes/summary/by-subject", {
-    params: { grade_level_id: gradeLevelId },
+    params,
   });
   return data;
 }

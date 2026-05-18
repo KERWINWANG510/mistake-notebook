@@ -9,6 +9,23 @@ import httpx
 from app.schemas import ListModelsResponse, ModelItem
 
 
+def effective_chat_temperature(model: str, requested: float) -> float:
+    """部分上游（如 Moonshot Kimi K2 / 2.6）仅允许 temperature=1，否则会返回 400。
+
+    与 OpenAI 兼容网关约定：模型 id 常为 kimi-k2-* 或含 kimi 与 k2 / 2.6 等字样。
+    """
+    m = (model or "").strip().lower()
+    if not m:
+        return requested
+    if "kimi-k2" in m:
+        return 1.0
+    if "kimi" in m and ("k2" in m or "2.6" in m):
+        return 1.0
+    if "moonshot" in m and "k2" in m:
+        return 1.0
+    return requested
+
+
 def join_url(base_url: str, path: str) -> str:
     b = base_url.rstrip("/")
     p = path if path.startswith("/") else f"/{path}"
@@ -68,12 +85,19 @@ async def chat_completion(
     temperature: float = 0.2,
     *,
     request_timeout: float = 120.0,
+    response_format: dict[str, Any] | None = None,
 ) -> tuple[bool, str | None, dict[str, Any] | None]:
     url = join_url(base_url, chat_path)
     headers: dict[str, str] = {"Content-Type": "application/json"}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
-    payload: dict[str, Any] = {"model": model, "messages": messages, "temperature": temperature}
+    payload: dict[str, Any] = {
+        "model": model,
+        "messages": messages,
+        "temperature": effective_chat_temperature(model, temperature),
+    }
+    if response_format is not None:
+        payload["response_format"] = response_format
     try:
         async with httpx.AsyncClient(timeout=request_timeout) as client:
             r = await client.post(url, headers=headers, json=payload)
@@ -119,6 +143,8 @@ async def chat_completion_stream(
     model: str,
     messages: list[dict[str, Any]],
     temperature: float = 0.2,
+    *,
+    response_format: dict[str, Any] | None = None,
 ) -> AsyncIterator[str]:
     """调用上游 chat.completions 流式接口，逐段产出文本 delta（不含 JSON 封装）。"""
     url = join_url(base_url, chat_path)
@@ -128,9 +154,11 @@ async def chat_completion_stream(
     payload: dict[str, Any] = {
         "model": model,
         "messages": messages,
-        "temperature": temperature,
+        "temperature": effective_chat_temperature(model, temperature),
         "stream": True,
     }
+    if response_format is not None:
+        payload["response_format"] = response_format
     timeout = httpx.Timeout(180.0, connect=30.0)
     async with httpx.AsyncClient(timeout=timeout) as client:
         async with client.stream("POST", url, headers=headers, json=payload) as r:
