@@ -127,24 +127,6 @@ body {
   box-sizing: border-box;
 }
 
-/* 登录页全屏背景 */
-.login-page {
-  min-height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px 16px 40px;
-  background:
-    radial-gradient(ellipse 80% 60% at 50% -20%, rgba(99, 102, 241, 0.22), transparent),
-    linear-gradient(165deg, #f0f4ff 0%, #e8eeff 50%, #eef1fa 100%);
-}
-
-.login-card {
-  width: 100%;
-  max-width: 420px;
-  box-shadow: var(--app-shadow-lg);
-}
-
 /* 文件选择：现代化上传区 */
 .file-picker {
   position: relative;

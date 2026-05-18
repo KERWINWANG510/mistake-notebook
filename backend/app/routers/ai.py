@@ -16,6 +16,7 @@ from app.schemas import (
     ListModelsResponse,
 )
 from app.services.ai_client import fetch_models
+from app.services.ai_config import require_user_ai_config
 from app.services.crypto import decrypt_secret, encrypt_secret
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
@@ -57,10 +58,14 @@ async def list_presets(
 
 @router.get("/configs", response_model=list[AiConfigOut])
 async def list_configs(
-    _: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> list[AiConfigOut]:
-    result = await db.execute(select(AiProviderConfig).order_by(AiProviderConfig.created_at.desc()))
+    result = await db.execute(
+        select(AiProviderConfig)
+        .where(AiProviderConfig.user_id == user.id)
+        .order_by(AiProviderConfig.created_at.desc())
+    )
     rows = result.scalars().all()
     return [_config_out(r) for r in rows]
 
@@ -68,7 +73,7 @@ async def list_configs(
 @router.post("/configs", response_model=AiConfigOut)
 async def create_config(
     body: AiConfigCreate,
-    _: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> AiConfigOut:
     if body.preset_id:
@@ -96,6 +101,7 @@ async def create_config(
         if not pr:
             raise HTTPException(status_code=400, detail="无效的解题 preset_id")
     row = AiProviderConfig(
+        user_id=user.id,
         user_label=body.user_label,
         preset_id=body.preset_id,
         base_url=body.base_url.rstrip("/"),
@@ -116,11 +122,12 @@ async def create_config(
     db.add(row)
     await db.commit()
     await db.refresh(row)
-    total = await db.scalar(select(func.count()).select_from(AiProviderConfig))
+    total = await db.scalar(
+        select(func.count())
+        .select_from(AiProviderConfig)
+        .where(AiProviderConfig.user_id == user.id)
+    )
     if total == 1:
-        res_all = await db.execute(select(AiProviderConfig))
-        for c in res_all.scalars().all():
-            c.is_active = False
         row.is_active = True
         await db.commit()
         await db.refresh(row)
@@ -131,12 +138,10 @@ async def create_config(
 async def update_config(
     config_id: str,
     body: AiConfigUpdate,
-    _: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> AiConfigOut:
-    row = await db.get(AiProviderConfig, config_id)
-    if not row:
-        raise HTTPException(status_code=404, detail="配置不存在")
+    row = require_user_ai_config(await db.get(AiProviderConfig, config_id), user)
     if body.user_label is not None:
         row.user_label = body.user_label
     if body.base_url is not None:
@@ -189,12 +194,10 @@ async def update_config(
 @router.delete("/configs/{config_id}")
 async def delete_config(
     config_id: str,
-    _: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, str]:
-    row = await db.get(AiProviderConfig, config_id)
-    if not row:
-        raise HTTPException(status_code=404, detail="配置不存在")
+    row = require_user_ai_config(await db.get(AiProviderConfig, config_id), user)
     if row.is_active:
         raise HTTPException(status_code=400, detail="请先取消激活或激活其他配置后再删除")
     await db.delete(row)
@@ -205,13 +208,11 @@ async def delete_config(
 @router.post("/configs/{config_id}/activate", response_model=AiConfigOut)
 async def activate_config(
     config_id: str,
-    _: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> AiConfigOut:
-    row = await db.get(AiProviderConfig, config_id)
-    if not row:
-        raise HTTPException(status_code=404, detail="配置不存在")
-    result = await db.execute(select(AiProviderConfig))
+    row = require_user_ai_config(await db.get(AiProviderConfig, config_id), user)
+    result = await db.execute(select(AiProviderConfig).where(AiProviderConfig.user_id == user.id))
     for c in result.scalars().all():
         c.is_active = False
     row.is_active = True
@@ -235,12 +236,10 @@ async def list_models_preview(
 async def list_models(
     config_id: str,
     target: Literal["main", "vision", "solve"] = Query("main", description="main=主接入；vision/solve=独立接入"),
-    _: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> ListModelsResponse:
-    row = await db.get(AiProviderConfig, config_id)
-    if not row:
-        raise HTTPException(status_code=404, detail="配置不存在")
+    row = require_user_ai_config(await db.get(AiProviderConfig, config_id), user)
     if target == "main":
         key = decrypt_secret(row.api_key_cipher)
         return await fetch_models(row.base_url, row.models_path, key)

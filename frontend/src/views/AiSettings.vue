@@ -428,7 +428,7 @@ function openEdit(r: AiConfig) {
     <header class="page-header">
       <h1 class="page-header__title">AI 接入配置</h1>
       <p class="page-header__desc">
-        主接入用于默认识图与解题；若识图或解题需走另一家厂商，可分别开启独立服务商并填写对应地址与密钥。
+        以下配置仅对当前登录账号生效，与其他用户互不可见。主接入用于默认识图与解题；若识图或解题需走另一家厂商，可分别开启独立服务商并填写对应地址与密钥。
       </p>
     </header>
     <NCard class="surface-card" title="配置列表" :segmented="{ content: true }">

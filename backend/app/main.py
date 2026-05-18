@@ -1,3 +1,5 @@
+import logging
+import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -9,6 +11,7 @@ from app.database import AsyncSessionLocal, Base, engine
 from app.migrate_sqlite import apply_sqlite_migrations
 from app.routers import ai, analyze, auth, grades, mistakes, practice, stats, subjects
 from app.seed import (
+    backfill_ai_config_user_ids,
     backfill_mistake_user_ids,
     backfill_user_profiles,
     ensure_admin_user,
@@ -17,6 +20,20 @@ from app.seed import (
     ensure_missing_presets,
     run_seed,
 )
+
+logger = logging.getLogger(__name__)
+
+
+def _log_docker_default_admin_credentials() -> None:
+    """Docker 部署时在容器日志中提示默认管理员账号（登录页不展示）。"""
+    if not Path("/.dockerenv").is_file():
+        return
+    msg = (
+        "【AI 错题本】默认管理员：用户名 admin，密码 123456。"
+        "首次启动会自动创建该账号；生产环境请尽快修改密码并设置 APP_SECRET。"
+    )
+    print(msg, file=sys.stderr, flush=True)
+    logger.info(msg)
 
 
 @asynccontextmanager
@@ -37,6 +54,8 @@ async def lifespan(app: FastAPI):
         await ensure_admin_user(session)
         await backfill_user_profiles(session)
         await backfill_mistake_user_ids(session)
+        await backfill_ai_config_user_ids(session)
+    _log_docker_default_admin_credentials()
     yield
 
 

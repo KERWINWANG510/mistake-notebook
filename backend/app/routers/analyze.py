@@ -14,6 +14,7 @@ from app.models import AiProviderConfig, Subject, User
 from app.routers.deps import get_current_user
 from app.schemas import AnalyzeResult, OcrStemResult, SolveFromStemBody, SolveSuggestResult
 from app.services.ai_client import UpstreamChatError, chat_completion, chat_completion_stream
+from app.services.ai_config import get_active_ai_config
 from app.services.crypto import decrypt_secret
 
 router = APIRouter(prefix="/api/analyze", tags=["analyze"])
@@ -289,10 +290,7 @@ async def solve_from_stem(
     model: str | None = Query(None, description="覆盖默认模型（解题）"),
     model_solve: str | None = Query(None, description="覆盖解题与分类模型"),
 ) -> SolveSuggestResult:
-    r = await db.execute(select(AiProviderConfig).where(AiProviderConfig.is_active.is_(True)))
-    cfg = r.scalar_one_or_none()
-    if not cfg:
-        raise HTTPException(status_code=409, detail="未配置或未激活 AI，请先在设置中完成配置")
+    cfg = await get_active_ai_config(db, _user)
 
     stem_text = body.stem.strip()
     if not stem_text:
@@ -324,10 +322,7 @@ async def analyze_image_stream(
     model_solve: str | None = Query(None, description="覆盖解题与分类模型"),
 ) -> StreamingResponse:
     """流式识别错题：NDJSON 行协议，便于前端实时展示上游输出。"""
-    r = await db.execute(select(AiProviderConfig).where(AiProviderConfig.is_active.is_(True)))
-    cfg = r.scalar_one_or_none()
-    if not cfg:
-        raise HTTPException(status_code=409, detail="未配置或未激活 AI，请先在设置中完成配置")
+    cfg = await get_active_ai_config(db, _user)
 
     v_base, v_chat, v_key = _vision_transport(cfg)
     if not v_key:
@@ -450,10 +445,7 @@ async def analyze_image(
     model_vision: str | None = Query(None, description="覆盖识图/OCR 模型"),
     model_solve: str | None = Query(None, description="覆盖解题与分类模型"),
 ) -> AnalyzeResult:
-    r = await db.execute(select(AiProviderConfig).where(AiProviderConfig.is_active.is_(True)))
-    cfg = r.scalar_one_or_none()
-    if not cfg:
-        raise HTTPException(status_code=409, detail="未配置或未激活 AI，请先在设置中完成配置")
+    cfg = await get_active_ai_config(db, _user)
 
     v_base, v_chat, v_key = _vision_transport(cfg)
     if not v_key:

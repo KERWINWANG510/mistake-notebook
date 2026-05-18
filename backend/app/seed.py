@@ -311,6 +311,19 @@ async def backfill_user_profiles(session: AsyncSession) -> None:
         await session.commit()
 
 
+async def backfill_ai_config_user_ids(session: AsyncSession) -> None:
+    """将历史 AI 配置归属到 admin 账号（迁移后 user_id 为空时）。"""
+    r = await session.execute(select(User).where(User.username == "admin"))
+    admin = r.scalar_one_or_none()
+    if admin is None:
+        return
+    await session.execute(
+        text("UPDATE ai_provider_configs SET user_id = :uid WHERE user_id IS NULL"),
+        {"uid": admin.id},
+    )
+    await session.commit()
+
+
 async def backfill_mistake_user_ids(session: AsyncSession) -> None:
     """将历史错题归属到 admin 账号。"""
     r = await session.execute(select(User).where(User.username == "admin"))

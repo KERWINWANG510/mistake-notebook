@@ -343,11 +343,13 @@ function formatDate(iso: string) {
           <NButton
             v-if="viewMode === 'mistakes'"
             class="mistake-hub__back"
+            circle
             quaternary
             size="small"
+            aria-label="返回科目列表"
             @click="backToSubjects"
           >
-            ←
+            <span class="mistake-hub__back-icon" aria-hidden="true">←</span>
           </NButton>
           <div class="mistake-hub__title-wrap">
             <h1 class="mistake-hub__title">
@@ -408,13 +410,15 @@ function formatDate(iso: string) {
               }"
               @click="openSubject(item)"
             >
-            <div class="subject-tile__badge">{{ item.mistake_count }}</div>
-            <div class="subject-tile__avatar">{{ subjectInitial(item.subject_name) }}</div>
-            <div class="subject-tile__name">{{ item.subject_name }}</div>
-            <p class="subject-tile__meta">
-              {{ item.mistake_count > 0 ? `${item.mistake_count} 道错题` : "暂无错题" }}
-            </p>
-          </button>
+              <span class="subject-tile__glow" aria-hidden="true" />
+              <span class="subject-tile__badge">{{ item.mistake_count }}</span>
+              <div class="subject-tile__avatar">{{ subjectInitial(item.subject_name) }}</div>
+              <div class="subject-tile__name">{{ item.subject_name }}</div>
+              <p class="subject-tile__meta">
+                {{ item.mistake_count > 0 ? `${item.mistake_count} 道错题` : "暂无错题" }}
+              </p>
+              <span class="subject-tile__enter" aria-hidden="true">进入</span>
+            </button>
             <NDropdown
               v-if="item.knowledge_tags?.length"
               trigger="click"
@@ -428,14 +432,23 @@ function formatDate(iso: string) {
                 aria-label="按知识点筛选"
                 @click.stop
               >
-                ▾
+                <span class="subject-tile__tag-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M6 9l6 6 6-6" />
+                  </svg>
+                </span>
               </button>
             </NDropdown>
           </article>
         </div>
 
         <div v-else-if="!loading" class="mistake-hub__empty">
-          <div class="mistake-hub__empty-icon">📚</div>
+          <div class="mistake-hub__empty-visual" aria-hidden="true">
+            <svg viewBox="0 0 48 48" fill="none">
+              <rect x="8" y="6" width="28" height="36" rx="4" stroke="currentColor" stroke-width="2" />
+              <path d="M14 16h16M14 24h12M14 32h10" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+            </svg>
+          </div>
           <p class="mistake-hub__empty-title">{{ isAllGrades ? "暂无错题" : "该年级暂无错题" }}</p>
           <p class="mistake-hub__empty-desc">
             {{ isAllGrades ? "录入第一道错题后将按科目展示" : "切换其他年级查看，或录入第一道错题" }}
@@ -447,7 +460,7 @@ function formatDate(iso: string) {
 
     <section v-if="viewMode === 'mistakes' && activeSubject" class="mistake-hub__panel mistake-hub__panel--grow">
       <div v-if="selectedTag" class="mistake-hub__tag-bar">
-        <NTag size="small" type="info" closable @close="clearTagFilter">知识点：{{ selectedTag }}</NTag>
+        <NTag size="small" round type="info" closable @close="clearTagFilter">知识点：{{ selectedTag }}</NTag>
       </div>
       <NSpin :show="mistakesLoading" class="mistake-hub__spin">
         <div v-if="mistakes.length > 0" class="mistake-hub__mistake-grid">
@@ -461,9 +474,15 @@ function formatDate(iso: string) {
             @click="router.push({ path: `/mistakes/${m.id}`, query: route.query })"
             @keydown.enter="router.push({ path: `/mistakes/${m.id}`, query: route.query })"
           >
-            <div class="mistake-tile__top">
-              <span class="mistake-tile__date">{{ formatDate(m.created_at) }}</span>
-              <div class="mistake-tile__badges">
+            <span
+              class="mistake-tile__accent"
+              :class="m.is_mastered ? 'mistake-tile__accent--mastered' : 'mistake-tile__accent--pending'"
+              aria-hidden="true"
+            />
+            <div class="mistake-tile__body">
+              <div class="mistake-tile__top">
+                <span class="mistake-tile__date">{{ formatDate(m.created_at) }}</span>
+                <div class="mistake-tile__badges">
                 <NTag v-if="isAllGrades && m.grade_name" size="tiny" :bordered="false" type="default">
                   {{ m.grade_name }}
                 </NTag>
@@ -477,14 +496,15 @@ function formatDate(iso: string) {
                 </NTag>
                 <span v-if="m.image_path" class="mistake-tile__has-img">含配图</span>
               </div>
+              </div>
+              <div class="mistake-tile__stem mistake-tile__stem--formatted">
+                <FormattedAnalysis :text="m.stem" variant="stem" empty-text="—" />
+              </div>
+              <div v-if="m.knowledge_tags?.length" class="mistake-tile__tags">
+                <span v-for="t in m.knowledge_tags" :key="t" class="mistake-tile__tag">{{ t }}</span>
+              </div>
             </div>
-            <div class="mistake-tile__stem mistake-tile__stem--formatted">
-              <FormattedAnalysis :text="m.stem" variant="stem" empty-text="—" />
-            </div>
-            <div v-if="m.knowledge_tags?.length" class="mistake-tile__tags">
-              <NTag v-for="t in m.knowledge_tags" :key="t" size="tiny" :bordered="false">{{ t }}</NTag>
-            </div>
-            <div class="mistake-tile__actions app-actions app-actions--bar" @click.stop>
+            <div class="mistake-tile__actions app-actions" @click.stop>
               <NButton
                 size="small"
                 secondary
@@ -501,8 +521,15 @@ function formatDate(iso: string) {
             </div>
           </article>
         </div>
-        <div v-else-if="!mistakesLoading" class="mistake-hub__empty">
+        <div v-else-if="!mistakesLoading" class="mistake-hub__empty mistake-hub__empty--compact">
+          <div class="mistake-hub__empty-visual mistake-hub__empty-visual--sm" aria-hidden="true">
+            <svg viewBox="0 0 48 48" fill="none">
+              <circle cx="24" cy="24" r="18" stroke="currentColor" stroke-width="2" />
+              <path d="M16 24h16" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+            </svg>
+          </div>
           <p class="mistake-hub__empty-title">当前筛选条件下暂无错题</p>
+          <p class="mistake-hub__empty-desc">可调整掌握状态或清除知识点筛选</p>
         </div>
       </NSpin>
     </section>
@@ -513,7 +540,7 @@ function formatDate(iso: string) {
 .mistake-hub {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 16px;
   flex: 1;
   min-height: 0;
 }
@@ -538,13 +565,18 @@ function formatDate(iso: string) {
 }
 
 .mistake-hub__header {
-  border-radius: 16px;
-  padding: 12px 14px;
+  border-radius: 18px;
+  padding: 14px 16px;
   background:
-    radial-gradient(ellipse 80% 120% at 100% 0%, rgba(99, 102, 241, 0.14), transparent 55%),
-    linear-gradient(145deg, #ffffff 0%, #f8f9ff 100%);
-  border: 1px solid rgba(255, 255, 255, 0.9);
-  box-shadow: var(--app-shadow);
+    radial-gradient(ellipse 90% 120% at 100% 0%, rgba(99, 102, 241, 0.16), transparent 52%),
+    radial-gradient(ellipse 60% 80% at 0% 100%, rgba(139, 92, 246, 0.08), transparent 50%),
+    linear-gradient(155deg, #ffffff 0%, #f8f9ff 55%, #f5f3ff 100%);
+  border: 1px solid rgba(255, 255, 255, 0.92);
+  box-shadow:
+    0 0 0 1px rgba(99, 102, 241, 0.05),
+    var(--app-shadow);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 
 .mistake-hub__header-top {
@@ -589,8 +621,18 @@ function formatDate(iso: string) {
 .mistake-hub__header-actions {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   flex-shrink: 0;
+  padding: 4px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.55);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+}
+
+.mistake-hub__back-icon {
+  font-size: 16px;
+  line-height: 1;
+  font-weight: 600;
 }
 
 .mistake-hub__grade-select {
@@ -612,41 +654,55 @@ function formatDate(iso: string) {
 
 .mistake-hub__subject-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 160px), 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 168px), 1fr));
+  gap: 14px;
 }
 
 .subject-tile-wrap {
   position: relative;
 }
 
-.subject-tile-wrap .subject-tile {
-  /* 与右下角知识点按钮区域对齐，有无小三角卡片高度一致 */
-  padding-bottom: 44px;
-}
 
 .subject-tile {
+  position: relative;
   width: 100%;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 4px;
-  min-height: 148px;
-  padding: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.85);
-  border-radius: 18px;
+  min-height: 156px;
+  padding: 18px 16px 44px;
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  border-radius: 20px;
   text-align: left;
   cursor: pointer;
-  box-shadow: 0 6px 24px rgba(15, 23, 42, 0.05);
+  overflow: hidden;
+  box-shadow:
+    0 0 0 1px rgba(15, 23, 42, 0.03),
+    0 8px 28px rgba(15, 23, 42, 0.06);
   transition:
-    transform 0.18s ease,
-    box-shadow 0.18s ease;
+    transform 0.2s ease,
+    box-shadow 0.2s ease,
+    border-color 0.2s ease;
   -webkit-tap-highlight-color: transparent;
 }
 
+.subject-tile__glow {
+  position: absolute;
+  top: -24px;
+  right: -24px;
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.55) 0%, transparent 70%);
+  pointer-events: none;
+}
+
 .subject-tile:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.08);
+  transform: translateY(-3px);
+  box-shadow:
+    0 0 0 1px var(--tile-ring),
+    0 16px 40px rgba(15, 23, 42, 0.1);
 }
 
 .subject-tile:active {
@@ -690,6 +746,7 @@ function formatDate(iso: string) {
   font-size: 17px;
   font-weight: 700;
   color: #0f172a;
+  letter-spacing: -0.02em;
 }
 
 .subject-tile__meta {
@@ -698,25 +755,52 @@ function formatDate(iso: string) {
   color: var(--app-text-muted);
 }
 
+.subject-tile__enter {
+  margin-top: auto;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--tile-fg);
+  opacity: 0.75;
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.subject-tile:hover .subject-tile__enter {
+  opacity: 1;
+  transform: translateX(2px);
+}
+
 .subject-tile__tag-trigger {
   position: absolute;
   right: 10px;
   bottom: 10px;
   z-index: 2;
-  width: 28px;
-  height: 28px;
-  border: 1px solid rgba(255, 255, 255, 0.9);
-  border-radius: 8px;
+  width: 32px;
+  height: 32px;
+  border: 1px solid rgba(255, 255, 255, 0.95);
+  border-radius: 10px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 14px;
-  line-height: 1;
   color: var(--tile-fg);
-  background: rgba(255, 255, 255, 0.88);
+  background: rgba(255, 255, 255, 0.92);
   cursor: pointer;
-  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
-  transition: background 0.15s ease, transform 0.15s ease;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.1);
+  transition:
+    background 0.15s ease,
+    transform 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.subject-tile__tag-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 0;
+}
+
+.subject-tile__tag-icon svg {
+  width: 16px;
+  height: 16px;
 }
 
 .subject-tile__tag-trigger:hover {
@@ -726,33 +810,72 @@ function formatDate(iso: string) {
 
 .mistake-hub__mistake-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
+  gap: 14px;
   align-content: start;
 }
 
+.mistake-hub__mistake-grid > .mistake-tile {
+  min-width: 0;
+}
+
 .mistake-tile {
+  position: relative;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 16px;
-  border-radius: 16px;
-  background: #fff;
-  border: 1px solid var(--app-border);
-  box-shadow: var(--app-shadow);
-  min-height: 140px;
+  gap: 0;
+  padding: 0;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.8) inset,
+    var(--app-shadow);
+  min-height: 148px;
   cursor: pointer;
+  overflow: visible;
   transition:
-    transform 0.18s ease,
-    box-shadow 0.18s ease,
-    border-color 0.18s ease;
+    transform 0.2s ease,
+    box-shadow 0.2s ease,
+    border-color 0.2s ease;
   -webkit-tap-highlight-color: transparent;
 }
 
+.mistake-tile__accent {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  border-radius: 18px 0 0 18px;
+}
+
+.mistake-tile__accent--pending {
+  background: linear-gradient(180deg, #f59e0b, #fbbf24);
+}
+
+.mistake-tile__accent--mastered {
+  background: linear-gradient(180deg, #22c55e, #4ade80);
+}
+
+.mistake-tile__body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+  padding: 14px 16px 12px 18px;
+  border-top-left-radius: 17px;
+  border-top-right-radius: 17px;
+  overflow: hidden;
+}
+
 .mistake-tile:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 8px 28px rgba(15, 23, 42, 0.07);
-  border-color: rgba(99, 102, 241, 0.28);
+  transform: translateY(-2px);
+  box-shadow:
+    0 0 0 1px rgba(99, 102, 241, 0.12),
+    0 12px 36px rgba(15, 23, 42, 0.09);
+  border-color: rgba(99, 102, 241, 0.32);
 }
 
 .mistake-tile:focus-visible {
@@ -775,13 +898,17 @@ function formatDate(iso: string) {
 }
 
 .mistake-tile--mastered {
-  border-color: rgba(34, 197, 94, 0.28);
-  background: linear-gradient(180deg, rgba(240, 253, 244, 0.92), rgba(255, 255, 255, 0.88));
+  border-color: rgba(34, 197, 94, 0.32);
+  background: linear-gradient(135deg, rgba(240, 253, 244, 0.95) 0%, rgba(255, 255, 255, 0.94) 48%);
 }
 
 .mistake-tile__date {
   font-size: 12px;
-  color: var(--app-text-subtle);
+  font-weight: 500;
+  color: var(--app-text-muted);
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: rgba(148, 163, 184, 0.12);
 }
 
 .mistake-tile__has-img {
@@ -793,13 +920,46 @@ function formatDate(iso: string) {
 }
 
 .mistake-hub__tag-bar {
-  margin-bottom: 8px;
+  margin-bottom: 10px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: rgba(99, 102, 241, 0.06);
+  border: 1px solid rgba(99, 102, 241, 0.12);
 }
 
 .mistake-tile__tags {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: 6px;
+}
+
+.mistake-tile__tag {
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.3;
+  padding: 3px 8px;
+  border-radius: 6px;
+  color: #4f46e5;
+  background: rgba(79, 70, 229, 0.08);
+  border: 1px solid rgba(79, 70, 229, 0.12);
+}
+
+.mistake-tile__actions {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 10px 16px 14px;
+  margin-top: 0;
+  border-top: 1px solid rgba(148, 163, 184, 0.2);
+  background: rgba(248, 250, 252, 0.65);
+  border-bottom-left-radius: 17px;
+  border-bottom-right-radius: 17px;
+  overflow: visible;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.mistake-tile__actions :deep(.n-button) {
+  flex-shrink: 0;
 }
 
 .mistake-tile__stem {
@@ -833,16 +993,48 @@ function formatDate(iso: string) {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 10px;
-  padding: 48px 20px;
+  gap: 12px;
+  padding: 52px 24px;
   text-align: center;
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.65);
-  border: 1px dashed rgba(148, 163, 184, 0.45);
+  border-radius: 20px;
+  background:
+    radial-gradient(ellipse 80% 60% at 50% 0%, rgba(99, 102, 241, 0.08), transparent 60%),
+    rgba(255, 255, 255, 0.72);
+  border: 1px dashed rgba(148, 163, 184, 0.4);
+  box-shadow: var(--app-shadow);
 }
 
-.mistake-hub__empty-icon {
-  font-size: 2rem;
+.mistake-hub__empty--compact {
+  padding: 36px 20px;
+}
+
+.mistake-hub__empty-visual {
+  width: 72px;
+  height: 72px;
+  border-radius: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #6366f1;
+  background: linear-gradient(145deg, rgba(238, 242, 255, 0.95), rgba(224, 231, 255, 0.75));
+  border: 1px solid rgba(99, 102, 241, 0.15);
+  box-shadow: 0 8px 24px rgba(99, 102, 241, 0.12);
+}
+
+.mistake-hub__empty-visual svg {
+  width: 36px;
+  height: 36px;
+}
+
+.mistake-hub__empty-visual--sm {
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+}
+
+.mistake-hub__empty-visual--sm svg {
+  width: 28px;
+  height: 28px;
 }
 
 .mistake-hub__empty-title {
@@ -903,6 +1095,8 @@ function formatDate(iso: string) {
     flex-wrap: wrap;
     justify-content: flex-end;
     gap: 8px;
+    padding: 6px 8px;
+    background: rgba(255, 255, 255, 0.75);
   }
 
   .mistake-hub__grade-select {

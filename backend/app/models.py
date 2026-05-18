@@ -148,6 +148,9 @@ class AiProviderConfig(Base):
     __tablename__ = "ai_provider_configs"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id"), nullable=False, index=True, comment="所属用户"
+    )
     user_label: Mapped[str] = mapped_column(String(128), nullable=False, comment="用户备注名")
     preset_id: Mapped[str | None] = mapped_column(
         String(64), ForeignKey("ai_provider_presets.id"), nullable=True, comment="关联预设，自定义为空"

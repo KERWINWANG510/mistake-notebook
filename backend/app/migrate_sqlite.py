@@ -41,6 +41,16 @@ def apply_sqlite_migrations(sync_conn) -> None:
             sync_conn.execute(text("ALTER TABLE ai_provider_configs ADD COLUMN solve_base_url VARCHAR(512)"))
         if "solve_api_key_cipher" not in c:
             sync_conn.execute(text("ALTER TABLE ai_provider_configs ADD COLUMN solve_api_key_cipher BLOB"))
+        if "user_id" not in c:
+            sync_conn.execute(text("ALTER TABLE ai_provider_configs ADD COLUMN user_id VARCHAR(36)"))
+            admin_row = sync_conn.execute(
+                text("SELECT id FROM users WHERE username = 'admin' LIMIT 1")
+            ).fetchone()
+            if admin_row:
+                sync_conn.execute(
+                    text("UPDATE ai_provider_configs SET user_id = :uid WHERE user_id IS NULL"),
+                    {"uid": admin_row[0]},
+                )
 
     t = "users"
     if t in _tables(sync_conn):

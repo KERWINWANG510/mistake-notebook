@@ -30,6 +30,7 @@ from app.schemas import (
     PracticeGenerateResult,
 )
 from app.services.ai_client import UpstreamChatError, chat_completion, chat_completion_stream
+from app.services.ai_config import get_active_ai_config
 
 router = APIRouter(prefix="/api/practice", tags=["practice"])
 
@@ -52,12 +53,8 @@ def _parse_json_object(content: str, label: str) -> dict:
     return obj
 
 
-async def _active_cfg(db: AsyncSession) -> AiProviderConfig:
-    r = await db.execute(select(AiProviderConfig).where(AiProviderConfig.is_active.is_(True)))
-    cfg = r.scalar_one_or_none()
-    if not cfg:
-        raise HTTPException(status_code=409, detail="未配置或未激活 AI，请先在设置中完成配置")
-    return cfg
+async def _active_cfg(db: AsyncSession, user: User) -> AiProviderConfig:
+    return await get_active_ai_config(db, user)
 
 
 async def _load_mistake(db: AsyncSession, mistake_id: str, user: User) -> Mistake:
@@ -135,7 +132,7 @@ async def generate_practice(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> PracticeGenerateResult:
-    cfg = await _active_cfg(db)
+    cfg = await _active_cfg(db, user)
     mistake = await _load_mistake(db, body.mistake_id, user)
 
     s_base, s_chat, s_key = _solve_transport(cfg)
@@ -187,7 +184,7 @@ async def check_practice(
     if not question_stem.strip():
         raise HTTPException(status_code=400, detail="题目不能为空")
 
-    cfg = await _active_cfg(db)
+    cfg = await _active_cfg(db, user)
     await _load_mistake(db, mistake_id, user)
 
     answer_parts: list[str] = []
@@ -275,8 +272,10 @@ def _http_exc_detail(exc: HTTPException) -> str:
     return d if isinstance(d, str) else str(d)
 
 
-async def _mock_paper_load_context(db: AsyncSession, body: MockPaperGenerateBody) -> MockPaperGenContext:
-    cfg = await _active_cfg(db)
+async def _mock_paper_load_context(
+    db: AsyncSession, body: MockPaperGenerateBody, user: User
+) -> MockPaperGenContext:
+    cfg = await _active_cfg(db, user)
     grade, subject = await _resolve_grade_subject(db, body.grade_level_id, body.subject_id)
 
     allowed_ordered = question_type_codes_for(subject.code, grade.level)
@@ -687,10 +686,10 @@ async def list_mock_paper_question_types(
 @router.post("/mock-paper/generate", response_model=MockPaperGenerateResult)
 async def generate_mock_paper(
     body: MockPaperGenerateBody,
-    _user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> MockPaperGenerateResult:
-    ctx = await _mock_paper_load_context(db, body)
+    ctx = await _mock_paper_load_context(db, body, user)
     ok, content, _ = await chat_completion(
         ctx.solve_base,
         ctx.solve_chat,
@@ -709,7 +708,7 @@ async def generate_mock_paper(
 @router.post("/mock-paper/generate-stream")
 async def generate_mock_paper_stream(
     body: MockPaperGenerateBody,
-    _user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> StreamingResponse:
     """模拟卷流式生成：NDJSON 行协议（phase / delta / done / error）。"""
@@ -717,7 +716,7 @@ async def generate_mock_paper_stream(
     async def ndjson_gen():
         try:
             yield _ndline({"type": "phase", "label": "正在准备组卷…"})
-            ctx = await _mock_paper_load_context(db, body)
+            ctx = await _mock_paper_load_context(db, body, user)
             yield _ndline({"type": "phase", "label": "正在生成试卷…"})
             acc = ""
             pending = ""
