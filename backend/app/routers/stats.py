@@ -7,7 +7,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.models import GradeLevel, Mistake, Subject, User
 from app.routers.deps import get_current_user
-from app.schemas import MistakeStatsGradeRow, MistakeStatsOverview, MistakeStatsSubjectRow, MistakeStatsTagRow
+from app.error_reasons import ERROR_REASON_OPTIONS, canonical_error_reason
+from app.schemas import (
+    MistakeStatsErrorReasonHeatmap,
+    MistakeStatsGradeRow,
+    MistakeStatsOverview,
+    MistakeStatsSubjectRow,
+    MistakeStatsTagRow,
+)
 
 router = APIRouter(prefix="/api/stats", tags=["stats"])
 
@@ -47,6 +54,69 @@ async def _query_tag_stats(
     )
     tag_rows = (await db.execute(tag_sql, params)).all()
     return _tag_stats_rows(tag_rows)
+
+
+@router.get("/mistakes/error-reason-heatmap", response_model=MistakeStatsErrorReasonHeatmap)
+async def mistake_stats_error_reason_heatmap(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> MistakeStatsErrorReasonHeatmap:
+    """错因 × 科目热力图：仅统计已标注错因的错题。"""
+    totals_stmt = select(func.count(Mistake.id)).where(Mistake.user_id == user.id)
+    total_mistake_count = int((await db.execute(totals_stmt)).scalar_one() or 0)
+
+    q = (
+        select(
+            Mistake.error_reason,
+            Mistake.subject_id,
+            Subject.name,
+            func.count(Mistake.id).label("cnt"),
+        )
+        .join(Subject, Mistake.subject_id == Subject.id)
+        .where(
+            Mistake.user_id == user.id,
+            Mistake.error_reason.is_not(None),
+            Mistake.error_reason != "",
+        )
+        .group_by(Mistake.error_reason, Mistake.subject_id, Subject.name)
+    )
+    rows = (await db.execute(q)).all()
+
+    reason_codes = [o["code"] for o in ERROR_REASON_OPTIONS]
+    reason_labels = [o["label"] for o in ERROR_REASON_OPTIONS]
+    reason_index = {c: i for i, c in enumerate(reason_codes)}
+
+    subject_order: list[tuple[str, str]] = []
+    subject_seen: set[str] = set()
+    for row in sorted(rows, key=lambda r: (-int(r.cnt), r.name or "")):
+        if row.subject_id not in subject_seen:
+            subject_seen.add(row.subject_id)
+            subject_order.append((row.subject_id, row.name or ""))
+
+    cells: list[list[int]] = []
+    annotated = 0
+    for row in rows:
+        reason_code = canonical_error_reason(row.error_reason or "") or ""
+        ri = reason_index.get(reason_code)
+        if ri is None:
+            continue
+        try:
+            si = next(i for i, (sid, _) in enumerate(subject_order) if sid == row.subject_id)
+        except StopIteration:
+            continue
+        cnt = int(row.cnt)
+        annotated += cnt
+        cells.append([si, ri, cnt])
+
+    return MistakeStatsErrorReasonHeatmap(
+        reason_codes=reason_codes,
+        reason_labels=reason_labels,
+        subject_ids=[s[0] for s in subject_order],
+        subject_names=[s[1] for s in subject_order],
+        cells=cells,
+        annotated_mistake_count=annotated,
+        total_mistake_count=total_mistake_count,
+    )
 
 
 @router.get("/mistakes/tags", response_model=list[MistakeStatsTagRow])

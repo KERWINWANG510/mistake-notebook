@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { NButton, NCard, NDynamicTags, NFormItem, NImage, NInput, NSelect, NSpace, NSwitch, NSpin, useMessage } from "naive-ui";
 import AnalysisField from "../components/AnalysisField.vue";
+import { ERROR_REASON_OPTIONS } from "../constants/errorReasons";
 import type { Grade, Mistake, Subject } from "../api/client";
 import {
   fetchGrades,
@@ -34,6 +35,9 @@ const subjectId = ref<string | null>(null);
 const gradeLevelId = ref<string | null>(null);
 const isMastered = ref(false);
 const knowledgeTags = ref<string[]>([]);
+const errorReason = ref<string | null>(null);
+
+const errorReasonOptions = ERROR_REASON_OPTIONS.map((o) => ({ label: o.label, value: o.value }));
 
 const imageObjectUrl = ref<string | null>(null);
 const imageInputRef = ref<HTMLInputElement | null>(null);
@@ -99,6 +103,7 @@ async function load() {
     gradeLevelId.value = m.grade_level_id;
     isMastered.value = m.is_mastered;
     knowledgeTags.value = [...(m.knowledge_tags ?? [])];
+    errorReason.value = m.error_reason ?? null;
     grades.value = gs;
     await loadSubjectsForGrade(m.grade_level_id);
     await loadImageBlob();
@@ -251,6 +256,10 @@ async function save() {
     message.warning("题干不能为空");
     return;
   }
+  if (!errorReason.value) {
+    message.warning("请选择错因");
+    return;
+  }
   saving.value = true;
   try {
     await updateMistake(id.value, {
@@ -261,6 +270,7 @@ async function save() {
       answer: answer.value,
       is_mastered: isMastered.value,
       knowledge_tags: knowledgeTags.value,
+      error_reason: errorReason.value,
     });
     message.success("已保存");
     leaveEditPage();
@@ -344,6 +354,17 @@ async function save() {
                 />
               </NFormItem>
             </div>
+
+            <NFormItem label="错因" :show-feedback="false" class="mistake-edit__item" label-placement="top">
+              <NSelect
+                v-model:value="errorReason"
+                size="small"
+                class="mistake-edit__select"
+                placeholder="请选择错因"
+                :options="errorReasonOptions"
+                clearable
+              />
+            </NFormItem>
 
             <NFormItem label="掌握状态" :show-feedback="false" class="mistake-edit__item" label-placement="top">
               <NSwitch v-model:value="isMastered">

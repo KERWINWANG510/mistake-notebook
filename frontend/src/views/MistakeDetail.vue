@@ -108,6 +108,11 @@ async function markMastered() {
                   <span class="mistake-detail__meta-v">{{ row.grade_name ?? "—" }}</span>
                 </div>
                 <span class="mistake-detail__meta-dot" aria-hidden="true" />
+                <div class="mistake-detail__meta-kv">
+                  <span class="mistake-detail__meta-k">错因</span>
+                  <span class="mistake-detail__meta-v">{{ row.error_reason_label || "—" }}</span>
+                </div>
+                <span class="mistake-detail__meta-dot" aria-hidden="true" />
                 <div class="mistake-detail__meta-kv mistake-detail__meta-kv--tag">
                   <span class="mistake-detail__meta-k">掌握</span>
                   <NTag

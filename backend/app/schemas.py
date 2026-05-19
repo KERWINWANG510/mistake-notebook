@@ -108,6 +108,11 @@ class GradeWithSubjectsOut(BaseModel):
     subjects: list[GradeSubjectBrief]
 
 
+class ErrorReasonOptionOut(BaseModel):
+    code: str
+    label: str
+
+
 class MistakeOut(BaseModel):
     id: str
     subject_id: str
@@ -118,6 +123,8 @@ class MistakeOut(BaseModel):
     image_path: str | None
     is_mastered: bool = False
     knowledge_tags: list[str] = Field(default_factory=list)
+    error_reason: str | None = None
+    error_reason_label: str | None = None
     created_at: datetime
     updated_at: datetime
     subject_name: str | None = None
@@ -142,6 +149,7 @@ class MistakeUpdate(BaseModel):
     answer: str | None = None
     is_mastered: bool | None = None
     knowledge_tags: list[str] | None = None
+    error_reason: str | None = None
 
 
 class KnowledgeTagCount(BaseModel):
@@ -165,6 +173,20 @@ class MistakeStatsSubjectRow(BaseModel):
 class MistakeStatsTagRow(BaseModel):
     tag: str
     mistake_count: int
+
+
+class MistakeStatsErrorReasonHeatmap(BaseModel):
+    """错因 × 科目热力图数据（ECharts heatmap：[x, y, value]）。"""
+
+    reason_codes: list[str]
+    reason_labels: list[str]
+    subject_ids: list[str]
+    subject_names: list[str]
+    cells: list[list[int]] = Field(
+        description="每项为 [subject_index, reason_index, mistake_count]"
+    )
+    annotated_mistake_count: int = Field(description="已标注错因的错题数量")
+    total_mistake_count: int = Field(description="当前用户错题总数")
 
 
 class MistakeStatsOverview(BaseModel):

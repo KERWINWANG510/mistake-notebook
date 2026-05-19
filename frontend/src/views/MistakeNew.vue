@@ -21,6 +21,7 @@ import {
 import type { Subject, Grade } from "../api/client";
 import { analyzeImageStream, createMistake, fetchGrades, fetchSubjects, solveFromStem } from "../api/client";
 import AnalysisField from "../components/AnalysisField.vue";
+import { ERROR_REASON_OPTIONS } from "../constants/errorReasons";
 
 const router = useRouter();
 const message = useMessage();
@@ -90,6 +91,9 @@ const answer = ref("");
 const subjectId = ref<string | null>(null);
 const gradeLevelId = ref<string | null>(null);
 const knowledgeTags = ref<string[]>([]);
+const errorReason = ref<string | null>(null);
+
+const errorReasonOptions = ERROR_REASON_OPTIONS.map((o) => ({ label: o.label, value: o.value }));
 
 const fileInputRef = ref<HTMLInputElement | null>(null);
 
@@ -212,6 +216,7 @@ function acceptImageFile(f: File) {
   subjectId.value = null;
   gradeLevelId.value = null;
   knowledgeTags.value = [];
+  errorReason.value = null;
   hasRecognized.value = false;
   originalFile.value = f;
   fileName.value = f.name;
@@ -745,6 +750,10 @@ async function save() {
     message.warning("题干不能为空");
     return;
   }
+  if (!errorReason.value) {
+    message.warning("请选择错因");
+    return;
+  }
   if (!uploadFile.value) {
     message.warning("请先选择题目图片并完成框选确认");
     return;
@@ -758,6 +767,7 @@ async function save() {
       analysis: analysis.value,
       answer: answer.value,
       knowledge_tags: knowledgeTags.value,
+      error_reason: errorReason.value,
       image: uploadFile.value,
     });
     message.success("已保存");
@@ -781,7 +791,18 @@ async function save() {
         <p v-if="narrow" class="mistake-new__header-mobile-tip">上传题目图 → 框选识别 → 核对后保存</p>
       </header>
       <NCard class="surface-card mistake-new__card" size="small" :bordered="false">
-        <NSpin :show="analyzeBusy" :description="analyzeSpinDesc">
+        <Teleport to="body">
+          <div
+            v-if="analyzeBusy"
+            class="mistake-new__busy-overlay"
+            role="status"
+            aria-live="polite"
+            :aria-label="analyzeSpinDesc || '正在处理'"
+          >
+            <NSpin :show="true" :description="analyzeSpinDesc" />
+          </div>
+        </Teleport>
+        <div class="mistake-new__card-shell" :class="{ 'mistake-new__card-shell--busy': analyzeBusy }">
           <input
             id="mistake-image-input"
             ref="fileInputRef"
@@ -872,6 +893,15 @@ async function save() {
                       :options="subjectOptions"
                       :disabled="!gradeLevelId"
                       placeholder="请选择科目"
+                    />
+                  </NFormItem>
+                  <NFormItem label="错因" :show-feedback="false" class="mistake-new__item" label-placement="top">
+                    <NSelect
+                      v-model:value="errorReason"
+                      size="small"
+                      :options="errorReasonOptions"
+                      placeholder="请选择错因"
+                      clearable
                     />
                   </NFormItem>
                   <NFormItem
@@ -982,7 +1012,7 @@ async function save() {
               </NButton>
             </div>
           </footer>
-        </NSpin>
+        </div>
       </NCard>
     </div>
 
@@ -1077,6 +1107,30 @@ async function save() {
   max-width: 100%;
   min-width: 0;
   box-sizing: border-box;
+}
+
+.mistake-new__busy-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.55);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  pointer-events: auto;
+}
+
+.mistake-new__busy-overlay :deep(.n-spin-body) {
+  position: static;
+  width: auto;
+  height: auto;
+}
+
+.mistake-new__card-shell--busy {
+  pointer-events: none;
+  user-select: none;
 }
 
 .mistake-new__header {

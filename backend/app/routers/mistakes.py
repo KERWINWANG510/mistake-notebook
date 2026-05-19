@@ -13,9 +13,10 @@ from sqlalchemy.orm import joinedload
 from app.config import get_settings
 from app.database import get_db
 from app.models import GradeLevel, GradeSubject, Mistake, Subject, User
+from app.error_reasons import ERROR_REASON_OPTIONS, error_reason_label, parse_error_reason
 from app.knowledge_tags import normalize_knowledge_tags as _normalize_tags
 from app.routers.deps import get_current_user
-from app.schemas import KnowledgeTagCount, MistakeOut, MistakeUpdate, SubjectMistakeSummary
+from app.schemas import ErrorReasonOptionOut, KnowledgeTagCount, MistakeOut, MistakeUpdate, SubjectMistakeSummary
 
 router = APIRouter(prefix="/api/mistakes", tags=["mistakes"])
 
@@ -31,6 +32,8 @@ def _mistake_out(m: Mistake) -> MistakeOut:
         image_path=m.image_path,
         is_mastered=m.is_mastered,
         knowledge_tags=list(m.knowledge_tags or []),
+        error_reason=m.error_reason,
+        error_reason_label=error_reason_label(m.error_reason),
         created_at=m.created_at,
         updated_at=m.updated_at,
         subject_name=m.subject.name if m.subject else None,
@@ -44,6 +47,12 @@ def _require_owner(m: Mistake | None, user: User) -> Mistake:
     if m.user_id != user.id:
         raise HTTPException(status_code=404, detail="错题不存在")
     return m
+
+
+@router.get("/error-reasons", response_model=list[ErrorReasonOptionOut])
+async def list_error_reasons() -> list[ErrorReasonOptionOut]:
+    """错因下拉选项（稳定 code + 中文标签）。"""
+    return [ErrorReasonOptionOut(**o) for o in ERROR_REASON_OPTIONS]
 
 
 @router.get("", response_model=list[MistakeOut])
@@ -332,8 +341,14 @@ async def create_mistake(
     analysis: str = Form(""),
     answer: str = Form(""),
     knowledge_tags: str = Form("[]"),
+    error_reason: str = Form(...),
     image: UploadFile | None = File(None),
 ) -> MistakeOut:
+    try:
+        reason_code = parse_error_reason(error_reason)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
     if not await db.get(Subject, subject_id):
         raise HTTPException(status_code=400, detail="科目不存在")
     if not await db.get(GradeLevel, grade_level_id):
@@ -372,6 +387,7 @@ async def create_mistake(
         answer=answer or "",
         image_path=image_rel,
         knowledge_tags=tags,
+        error_reason=reason_code,
     )
     db.add(row)
     await db.commit()
@@ -411,6 +427,11 @@ async def update_mistake(
         m.is_mastered = body.is_mastered
     if body.knowledge_tags is not None:
         m.knowledge_tags = _normalize_tags(body.knowledge_tags)
+    if body.error_reason is not None:
+        try:
+            m.error_reason = parse_error_reason(body.error_reason)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
     await db.commit()
     q = (
         select(Mistake)

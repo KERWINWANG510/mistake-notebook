@@ -7,6 +7,7 @@ import type { DropdownOption } from "naive-ui";
 import type { Grade, Mistake, SubjectMistakeSummary } from "../api/client";
 import { deleteMistake, fetchGrades, fetchMistakes, fetchSubjectMistakeSummary } from "../api/client";
 import { useAuthStore } from "../stores/auth";
+import { errorReasonLabel } from "../constants/errorReasons";
 import {
   inferCurrentGradeLevel,
   resolveGradeByLevel,
@@ -486,6 +487,7 @@ function formatDate(iso: string) {
                 <NTag v-if="isAllGrades && m.grade_name" size="tiny" :bordered="false" type="default">
                   {{ m.grade_name }}
                 </NTag>
+                <span v-if="m.error_reason" class="mistake-tile__reason">{{ errorReasonLabel(m.error_reason) }}</span>
                 <NTag
                   size="small"
                   :type="m.is_mastered ? 'success' : 'warning'"
@@ -917,6 +919,16 @@ function formatDate(iso: string) {
   border-radius: 999px;
   background: rgba(79, 70, 229, 0.08);
   color: #4f46e5;
+}
+
+.mistake-tile__reason {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(245, 158, 11, 0.12);
+  color: #b45309;
+  white-space: nowrap;
 }
 
 .mistake-hub__tag-bar {

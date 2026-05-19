@@ -56,6 +56,8 @@ export type Mistake = {
   image_path: string | null;
   is_mastered: boolean;
   knowledge_tags: string[];
+  error_reason?: string | null;
+  error_reason_label?: string | null;
   created_at: string;
   updated_at: string;
   subject_name?: string | null;
@@ -91,6 +93,21 @@ export type MistakeStatsSubjectRow = {
 export type MistakeStatsTagRow = {
   tag: string;
   mistake_count: number;
+};
+
+export type MistakeStatsErrorReasonHeatmap = {
+  reason_codes: string[];
+  reason_labels: string[];
+  subject_ids: string[];
+  subject_names: string[];
+  cells: [number, number, number][];
+  annotated_mistake_count: number;
+  total_mistake_count: number;
+};
+
+export type ErrorReasonOption = {
+  code: string;
+  label: string;
 };
 
 export type MistakeStatsOverview = {
@@ -292,6 +309,16 @@ export async function fetchSubjectMistakeSummary(gradeLevelId?: string) {
 
 export async function fetchMistakeStatsOverview() {
   const { data } = await http.get<MistakeStatsOverview>("/api/stats/mistakes");
+  return data;
+}
+
+export async function fetchMistakeStatsErrorReasonHeatmap() {
+  const { data } = await http.get<MistakeStatsErrorReasonHeatmap>("/api/stats/mistakes/error-reason-heatmap");
+  return data;
+}
+
+export async function fetchErrorReasonOptions() {
+  const { data } = await http.get<ErrorReasonOption[]>("/api/mistakes/error-reasons");
   return data;
 }
 
@@ -591,6 +618,7 @@ export async function createMistake(payload: {
   stem: string;
   analysis: string;
   answer: string;
+  error_reason: string;
   knowledge_tags?: string[];
   image?: File | null;
 }) {
@@ -600,6 +628,7 @@ export async function createMistake(payload: {
   fd.append("stem", payload.stem);
   fd.append("analysis", payload.analysis);
   fd.append("answer", payload.answer);
+  fd.append("error_reason", payload.error_reason);
   fd.append("knowledge_tags", JSON.stringify(payload.knowledge_tags ?? []));
   if (payload.image) fd.append("image", payload.image);
   const { data } = await http.post<Mistake>("/api/mistakes", fd);
@@ -616,6 +645,7 @@ export async function updateMistake(
     answer: string;
     is_mastered: boolean;
     knowledge_tags: string[];
+    error_reason: string;
   }>,
 ) {
   const { data } = await http.patch<Mistake>(`/api/mistakes/${id}`, payload);

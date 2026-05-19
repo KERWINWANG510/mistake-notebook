@@ -3,9 +3,16 @@ import type { EChartsOption } from "echarts";
 import * as echarts from "echarts";
 import { NCard, NSelect, NSpin, NStatistic, useMessage } from "naive-ui";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import type { Grade, MistakeStatsOverview, MistakeStatsTagRow, Subject } from "../api/client";
+import type {
+  Grade,
+  MistakeStatsErrorReasonHeatmap,
+  MistakeStatsOverview,
+  MistakeStatsTagRow,
+  Subject,
+} from "../api/client";
 import {
   fetchGrades,
+  fetchMistakeStatsErrorReasonHeatmap,
   fetchMistakeStatsOverview,
   fetchMistakeStatsTags,
   fetchSubjects,
@@ -14,7 +21,9 @@ import {
 const message = useMessage();
 const loading = ref(true);
 const tagLoading = ref(false);
+const heatmapLoading = ref(false);
 const overview = ref<MistakeStatsOverview | null>(null);
+const heatmapData = ref<MistakeStatsErrorReasonHeatmap | null>(null);
 
 const grades = ref<Grade[]>([]);
 const tagSubjects = ref<Subject[]>([]);
@@ -24,6 +33,7 @@ const tagSubjectId = ref<string | null>(null);
 const wrapGrade = ref<HTMLDivElement | null>(null);
 const wrapSubject = ref<HTMLDivElement | null>(null);
 const wrapTag = ref<HTMLDivElement | null>(null);
+const wrapHeatmap = ref<HTMLDivElement | null>(null);
 
 const narrow = ref(false);
 function updateNarrow() {
@@ -33,6 +43,7 @@ function updateNarrow() {
 let chartGrade: ReturnType<typeof echarts.init> | null = null;
 let chartSubject: ReturnType<typeof echarts.init> | null = null;
 let chartTag: ReturnType<typeof echarts.init> | null = null;
+let chartHeatmap: ReturnType<typeof echarts.init> | null = null;
 
 const CHART_GRADE_MIN = 340;
 const CHART_EMPTY_H = 300;
@@ -233,15 +244,142 @@ function disposeTag() {
   chartTag = null;
 }
 
+function disposeHeatmap() {
+  chartHeatmap?.dispose();
+  chartHeatmap = null;
+}
+
 function disposeAll() {
   disposeGradeSubject();
   disposeTag();
+  disposeHeatmap();
 }
 
 function resizeAll() {
   chartGrade?.resize();
   chartSubject?.resize();
   chartTag?.resize();
+  chartHeatmap?.resize();
+}
+
+function heatmapChartHeight(reasonCount: number, subjectCount: number, compact: boolean) {
+  const rows = Math.max(reasonCount, 1);
+  const cols = Math.max(subjectCount, 1);
+  const rowH = compact ? 32 : 36;
+  const base = compact ? 200 : 240;
+  return Math.min(compact ? 520 : 640, Math.max(compact ? 280 : 320, base + rows * rowH + (cols > 4 ? 24 : 0)));
+}
+
+function heatmapOption(data: MistakeStatsErrorReasonHeatmap, compact: boolean): EChartsOption {
+  const maxVal = data.cells.length ? Math.max(...data.cells.map((c) => c[2])) : 0;
+  const fontSize = compact ? 11 : 12;
+  return {
+    tooltip: {
+      position: "top",
+      formatter: (p: unknown) => {
+        const item = (Array.isArray(p) ? p[0] : p) as { data?: [number, number, number] };
+        const [xi, yi, val] = item?.data ?? [0, 0, 0];
+        const subject = data.subject_names[xi] ?? "";
+        const reason = data.reason_labels[yi] ?? "";
+        return `${subject}<br/>${reason}：${val} 道`;
+      },
+    },
+    grid: {
+      left: compact ? 72 : 88,
+      right: compact ? 16 : 24,
+      top: compact ? 12 : 16,
+      bottom: compact ? 56 : 64,
+      containLabel: false,
+    },
+    xAxis: {
+      type: "category",
+      data: data.subject_names,
+      splitArea: { show: true },
+      axisLabel: {
+        color: "#64748b",
+        fontSize,
+        rotate: data.subject_names.length > 5 ? 28 : 0,
+        interval: 0,
+      },
+    },
+    yAxis: {
+      type: "category",
+      data: data.reason_labels,
+      splitArea: { show: true },
+      axisLabel: { color: "#475569", fontSize },
+    },
+    visualMap: {
+      min: 0,
+      max: Math.max(maxVal, 1),
+      calculable: true,
+      orient: "horizontal",
+      left: "center",
+      bottom: compact ? 4 : 8,
+      itemWidth: compact ? 12 : 14,
+      itemHeight: compact ? 80 : 100,
+      inRange: { color: ["#eef2ff", "#a5b4fc", "#6366f1", "#4338ca"] },
+      textStyle: { fontSize: 11, color: "#64748b" },
+    },
+    series: [
+      {
+        type: "heatmap",
+        data: data.cells,
+        label: {
+          show: true,
+          fontSize: compact ? 11 : 12,
+          color: "#1e293b",
+          formatter: (p: { data?: [number, number, number] }) => {
+            const v = p?.data?.[2] ?? 0;
+            return v > 0 ? String(v) : "";
+          },
+        },
+        emphasis: {
+          itemStyle: { shadowBlur: 8, shadowColor: "rgba(15, 23, 42, 0.2)" },
+        },
+      },
+    ],
+  };
+}
+
+function heatmapEmptySubtext(data: MistakeStatsErrorReasonHeatmap | null) {
+  if (!data) return "加载中…";
+  if (data.total_mistake_count === 0) return "当前账号暂无错题";
+  if (data.annotated_mistake_count === 0) {
+    return "暂无已标注错因的错题，请在录入或编辑错题时选择错因";
+  }
+  return "暂无足够数据生成热力图";
+}
+
+async function renderHeatmapChart(data: MistakeStatsErrorReasonHeatmap | null) {
+  if (!wrapHeatmap.value) return;
+  const compact = narrow.value;
+  const hasCells = !!data && data.cells.length > 0;
+  wrapHeatmap.value.style.height = `${hasCells && data ? heatmapChartHeight(data.reason_labels.length, data.subject_names.length, compact) : CHART_EMPTY_H}px`;
+
+  chartHeatmap?.dispose();
+  chartHeatmap = echarts.init(wrapHeatmap.value);
+  if (hasCells && data) {
+    chartHeatmap.setOption(heatmapOption(data, compact), true);
+  } else {
+    chartHeatmap.setOption(emptyOption(heatmapEmptySubtext(data)), true);
+  }
+  chartHeatmap.resize();
+}
+
+async function reloadHeatmapChart() {
+  heatmapLoading.value = true;
+  try {
+    heatmapData.value = await fetchMistakeStatsErrorReasonHeatmap();
+    await nextTick();
+    await renderHeatmapChart(heatmapData.value);
+  } catch (e) {
+    message.error((e as Error).message);
+    heatmapData.value = null;
+    await nextTick();
+    await renderHeatmapChart(null);
+  } finally {
+    heatmapLoading.value = false;
+  }
 }
 
 function renderGradeSubjectCharts(data: MistakeStatsOverview) {
@@ -346,6 +484,7 @@ watch(narrow, () => {
   if (!overview.value) return;
   renderGradeSubjectCharts(overview.value);
   void reloadTagChart();
+  void renderHeatmapChart(heatmapData.value);
 });
 
 onMounted(async () => {
@@ -361,8 +500,9 @@ onMounted(async () => {
     await nextTick();
     renderGradeSubjectCharts(data);
     renderTagChart(data.by_tag);
+    await reloadHeatmapChart();
     roList = [];
-    for (const r of [wrapGrade, wrapSubject, wrapTag]) {
+    for (const r of [wrapGrade, wrapSubject, wrapTag, wrapHeatmap]) {
       if (!r.value) continue;
       const obs = new ResizeObserver(() => resizeAll());
       obs.observe(r.value);
@@ -390,7 +530,7 @@ onBeforeUnmount(() => {
     <header class="page-header statistics__header">
       <h1 class="page-header__title">错题统计</h1>
       <p class="page-header__desc statistics__header-desc">
-        按当前登录账号汇总全部错题；顶部为总体指标，下方按年级、科目、知识点标签三个维度展示分布。知识点标签图可按年级、科目筛选。
+        按当前登录账号汇总全部错题；顶部为总体指标，下方按年级、科目、错因×科目热力图、知识点标签展示分布。知识点标签图可按年级、科目筛选。
       </p>
       <p v-if="narrow" class="statistics__header-mobile-tip">总览指标 · 年级 / 科目 / 知识点分布</p>
     </header>
@@ -430,6 +570,19 @@ onBeforeUnmount(() => {
               </div>
             </template>
             <div ref="wrapSubject" class="statistics__chart" />
+          </NCard>
+          <NCard class="surface-card statistics__card statistics__panel" size="small" :bordered="false">
+            <template #header>
+              <div class="statistics__panel-head statistics__panel-head--stack">
+                <span class="statistics__panel-title">错因 × 科目</span>
+                <span v-if="heatmapData" class="statistics__panel-hint">
+                  已标注 {{ heatmapData.annotated_mistake_count }} / {{ heatmapData.total_mistake_count }} 道
+                </span>
+              </div>
+            </template>
+            <NSpin :show="heatmapLoading">
+              <div ref="wrapHeatmap" class="statistics__chart" />
+            </NSpin>
           </NCard>
           <NCard class="surface-card statistics__card statistics__card--tag statistics__panel" size="small" :bordered="false">
             <template #header>
@@ -482,7 +635,7 @@ onBeforeUnmount(() => {
 }
 
 .statistics__body {
-  max-width: 960px;
+  max-width: 1080px;
   margin: 0 auto;
   width: 100%;
 }
@@ -537,10 +690,42 @@ onBeforeUnmount(() => {
   width: 100%;
 }
 
+.statistics__grid > .statistics__card {
+  min-width: 0;
+}
+
+@media (min-width: 769px) {
+  .statistics__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+  }
+
+  .statistics__tag-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .statistics__tag-filters {
+    justify-content: flex-start;
+  }
+}
+
 .statistics__panel-head {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.statistics__panel-head--stack {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.statistics__panel-hint {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--app-text-muted);
 }
 
 .statistics__panel-title {
@@ -583,12 +768,6 @@ onBeforeUnmount(() => {
   width: 100%;
   min-height: 300px;
   overflow: visible;
-}
-
-@media (min-width: 1200px) {
-  .statistics__body {
-    max-width: 1080px;
-  }
 }
 
 @media (max-width: 768px) {
