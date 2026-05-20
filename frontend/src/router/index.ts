@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from "vue-router";
 import { useAuthStore } from "../stores/auth";
+import { scheduleSearchScrollRestore } from "../utils/searchScrollRestore";
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -15,6 +16,12 @@ const router = createRouter({
       path: "/mistakes",
       name: "mistakes",
       component: () => import("../views/MistakeList.vue"),
+    },
+    {
+      path: "/search",
+      name: "mistake-search",
+      component: () => import("../views/MistakeSearchView.vue"),
+      meta: { keepAlive: true },
     },
     {
       path: "/mistakes/new",
@@ -112,6 +119,12 @@ router.beforeEach(async (to) => {
     return { path: "/mistakes" };
   }
   return true;
+});
+
+router.afterEach((to, from) => {
+  if (to.path.startsWith("/search") && /^\/mistakes\/[^/]+$/.test(from.path)) {
+    scheduleSearchScrollRestore();
+  }
 });
 
 export default router;

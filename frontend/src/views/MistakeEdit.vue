@@ -15,6 +15,7 @@ import {
   solveFromStem,
   updateMistake,
 } from "../api/client";
+import { parseAppReturnTo } from "../utils/returnNavigation";
 
 const route = useRoute();
 const router = useRouter();
@@ -48,17 +49,9 @@ const imageInputRef = ref<HTMLInputElement | null>(null);
 const subjectOptions = computed(() => subjects.value.map((s) => ({ label: s.name, value: s.id })));
 const gradeOptions = computed(() => grades.value.map((g) => ({ label: g.name, value: g.id })));
 
-/** 保存/取消后返回：优先回到进入编辑页时的路径（列表或详情） */
+/** 保存/取消后返回：优先回到进入编辑页时的路径 */
 function pathAfterEdit(): string {
-  const raw = route.query.returnTo;
-  const candidate = Array.isArray(raw) ? raw[0] : raw;
-  if (typeof candidate === "string") {
-    const path = candidate.trim();
-    if (path.startsWith("/mistakes") && !path.startsWith("//")) {
-      return path;
-    }
-  }
-  return `/mistakes/${id.value}`;
+  return parseAppReturnTo(route.query as Record<string, unknown>) ?? `/mistakes/${id.value}`;
 }
 
 function leaveEditPage() {

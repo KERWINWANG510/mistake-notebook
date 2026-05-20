@@ -44,7 +44,7 @@ type NavChild = {
 type NavItem = {
   label: string;
   key: string;
-  icon: "book" | "subject" | "grade" | "ai" | "users" | "stats" | "practice" | "settings" | "review";
+  icon: "book" | "subject" | "grade" | "ai" | "users" | "stats" | "practice" | "settings" | "review" | "search";
   children?: NavChild[];
 };
 
@@ -61,6 +61,7 @@ const settingsChildren = computed<NavChild[]>(() => {
 
 const navItems = computed<NavItem[]>(() => [
   { label: "错题本", key: "/mistakes", icon: "book" },
+  { label: "搜索", key: "/search", icon: "search" },
   { label: "今日复习", key: "/review", icon: "review" },
   { label: "模拟卷", key: "/practice/mock-paper", icon: "practice" },
   { label: "统计", key: "/stats", icon: "stats" },
@@ -76,6 +77,7 @@ const navItems = computed<NavItem[]>(() => [
 const activeKey = computed(() => {
   const p = route.path;
   if (p.startsWith("/mistakes")) return "/mistakes";
+  if (p.startsWith("/search")) return "/search";
   if (p.startsWith("/review")) return "/review";
   if (p.startsWith("/practice")) return "/practice/mock-paper";
   if (p.startsWith("/stats")) return "/stats";
@@ -181,7 +183,14 @@ function logout() {
               </div>
             </NLayoutHeader>
             <NLayoutContent class="app-content" :native-scrollbar="false">
-              <RouterView :key="route.fullPath" />
+              <RouterView v-slot="{ Component, route: childRoute }">
+                <KeepAlive :include="['MistakeSearchView']">
+                  <component
+                    :is="Component"
+                    :key="childRoute.meta.keepAlive ? String(childRoute.path) : childRoute.fullPath"
+                  />
+                </KeepAlive>
+              </RouterView>
             </NLayoutContent>
           </NLayout>
 

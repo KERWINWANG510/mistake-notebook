@@ -5,6 +5,7 @@ import { NButton, NCard, NImage, NSpace, NSpin, NTag, useMessage } from "naive-u
 import FormattedAnalysis from "../components/FormattedAnalysis.vue";
 import type { Mistake } from "../api/client";
 import { fetchMistake, fetchMistakeImageObjectUrl, updateMistake } from "../api/client";
+import { parseAppReturnTo, returnBackLabel } from "../utils/returnNavigation";
 
 const route = useRoute();
 const router = useRouter();
@@ -17,6 +18,9 @@ const imageObjectUrl = ref<string | null>(null);
 const marking = ref(false);
 
 const knowledgeTagList = computed(() => row.value?.knowledge_tags?.filter((t) => t?.trim()) ?? []);
+
+const returnPath = computed(() => parseAppReturnTo(route.query as Record<string, unknown>));
+const backLabel = computed(() => returnBackLabel(returnPath.value));
 
 async function loadImageBlob() {
   if (imageObjectUrl.value) {
@@ -51,6 +55,10 @@ onBeforeUnmount(() => {
 });
 
 function backToList() {
+  if (returnPath.value) {
+    router.push(returnPath.value);
+    return;
+  }
   const grade = row.value?.grade_level_id ?? (typeof route.query.grade === "string" ? route.query.grade : null);
   const subject = row.value?.subject_id ?? (typeof route.query.subject === "string" ? route.query.subject : null);
   if (grade && subject) {
@@ -200,7 +208,7 @@ async function markMastered() {
             >
               举一反三
             </NButton>
-            <NButton size="small" @click="backToList">返回列表</NButton>
+            <NButton size="small" @click="backToList">{{ backLabel }}</NButton>
             <NButton
               size="small"
               type="primary"

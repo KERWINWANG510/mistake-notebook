@@ -386,6 +386,7 @@ function formatDate(iso: string) {
             <span class="mistake-hub__reset-label mistake-hub__reset-label--full">恢复推断</span>
             <span class="mistake-hub__reset-label mistake-hub__reset-label--short">推断</span>
           </NButton>
+          <NButton size="small" secondary @click="router.push('/search')">搜索</NButton>
           <NButton class="mistake-hub__add-btn" type="primary" size="small" @click="router.push('/mistakes/new')">
             <span class="mistake-hub__add-label mistake-hub__add-label--full">录入错题</span>
             <span class="mistake-hub__add-label mistake-hub__add-label--short">录入</span>
@@ -473,8 +474,8 @@ function formatDate(iso: string) {
             :class="{ 'mistake-tile--mastered': m.is_mastered }"
             role="button"
             tabindex="0"
-            @click="router.push({ path: `/mistakes/${m.id}`, query: route.query })"
-            @keydown.enter="router.push({ path: `/mistakes/${m.id}`, query: route.query })"
+            @click="router.push({ path: `/mistakes/${m.id}`, query: { returnTo: route.fullPath } })"
+            @keydown.enter="router.push({ path: `/mistakes/${m.id}`, query: { returnTo: route.fullPath } })"
           >
             <span
               class="mistake-tile__accent"

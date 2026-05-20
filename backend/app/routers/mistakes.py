@@ -2,11 +2,12 @@ import json
 import uuid
 from pathlib import Path
 
+from datetime import date
 from typing import Literal
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
@@ -15,6 +16,7 @@ from app.database import get_db
 from app.models import GradeLevel, GradeSubject, Mistake, Subject, User
 from app.error_reasons import ERROR_REASON_OPTIONS, error_reason_label, parse_error_reason
 from app.knowledge_tags import normalize_knowledge_tags as _normalize_tags
+from app.mistake_filters import apply_mistake_list_filters
 from app.mistake_sources import MISTAKE_SOURCE_OPTIONS, mistake_source_label, parse_mistake_source
 from app.routers.deps import get_current_user
 from app.schemas import (
@@ -79,31 +81,36 @@ async def list_mistakes(
     grade_level_id: str | None = None,
     mastery: Literal["mastered", "unmastered", "all"] = "unmastered",
     knowledge_tag: str | None = None,
+    knowledge_tags: list[str] | None = Query(default=None),
+    tag_match: Literal["and", "or"] = "or",
+    q: str | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    has_image: bool | None = None,
+    error_reasons: list[str] | None = Query(default=None),
 ) -> list[MistakeOut]:
-    q = (
+    """错题列表；支持全文检索、多标签 AND/OR、日期、配图、错因等组合筛选。"""
+    stmt = (
         select(Mistake)
         .options(joinedload(Mistake.subject), joinedload(Mistake.grade))
         .where(Mistake.user_id == user.id)
         .order_by(Mistake.created_at.desc())
     )
-    if subject_id:
-        q = q.where(Mistake.subject_id == subject_id)
-    if grade_level_id:
-        q = q.where(Mistake.grade_level_id == grade_level_id)
-    if mastery == "mastered":
-        q = q.where(Mistake.is_mastered.is_(True))
-    elif mastery == "unmastered":
-        q = q.where(Mistake.is_mastered.is_(False))
-    if knowledge_tag:
-        tag = knowledge_tag.strip()
-        if tag:
-            q = q.where(
-                text(
-                    "EXISTS (SELECT 1 FROM json_each(mistakes.knowledge_tags) "
-                    "WHERE json_each.value = :ktag)"
-                ).bindparams(ktag=tag)
-            )
-    result = await db.execute(q)
+    stmt = apply_mistake_list_filters(
+        stmt,
+        q=q,
+        knowledge_tags=knowledge_tags,
+        knowledge_tag=knowledge_tag,
+        tag_match=tag_match,
+        date_from=date_from,
+        date_to=date_to,
+        has_image=has_image,
+        error_reasons=error_reasons,
+        subject_id=subject_id,
+        grade_level_id=grade_level_id,
+        mastery=mastery,
+    )
+    result = await db.execute(stmt)
     rows = result.unique().scalars().all()
     return [_mistake_out(m) for m in rows]
 

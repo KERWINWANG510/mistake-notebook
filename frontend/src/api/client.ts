@@ -296,12 +296,23 @@ export async function fetchGradeCatalog() {
   return data;
 }
 
-export async function fetchMistakes(params?: {
+export type MistakeListParams = {
   subject_id?: string;
   grade_level_id?: string;
   mastery?: "mastered" | "unmastered" | "all";
   knowledge_tag?: string;
-}) {
+  /** 多知识点；与 tag_match 配合 */
+  knowledge_tags?: string[];
+  tag_match?: "and" | "or";
+  /** 题干 / 解析 / 答案 / 知识点全文检索 */
+  q?: string;
+  date_from?: string;
+  date_to?: string;
+  has_image?: boolean;
+  error_reasons?: string[];
+};
+
+export async function fetchMistakes(params?: MistakeListParams) {
   const { data } = await http.get<Mistake[]>("/api/mistakes", { params });
   return data;
 }
