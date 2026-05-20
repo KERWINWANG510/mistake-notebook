@@ -9,9 +9,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import get_settings
 from app.database import AsyncSessionLocal, Base, engine
 from app.migrate_sqlite import apply_sqlite_migrations
-from app.routers import ai, analyze, auth, grades, mistakes, practice, stats, subjects
+from app.routers import ai, analyze, auth, grades, mistakes, practice, review, stats, subjects
 from app.seed import (
     backfill_ai_config_user_ids,
+    backfill_mistake_reviews,
     backfill_mistake_user_ids,
     backfill_user_profiles,
     ensure_admin_user,
@@ -55,6 +56,7 @@ async def lifespan(app: FastAPI):
         await backfill_user_profiles(session)
         await backfill_mistake_user_ids(session)
         await backfill_ai_config_user_ids(session)
+        await backfill_mistake_reviews(session)
     _log_docker_default_admin_credentials()
     yield
 
@@ -84,6 +86,7 @@ app.include_router(stats.router)
 app.include_router(ai.router)
 app.include_router(analyze.router)
 app.include_router(practice.router)
+app.include_router(review.router)
 
 
 @app.get("/api/health")

@@ -821,3 +821,85 @@ export async function listAiModelsPreview(payload: {
   }>("/api/ai/list-models-preview", payload);
   return data;
 }
+
+export type ReviewSettings = {
+  include_mastered_in_review: boolean;
+  daily_review_target: number;
+  review_grade_level_id: string | null;
+  review_subject_id: string | null;
+  review_grade_name?: string | null;
+  review_subject_name?: string | null;
+};
+
+export type ReviewTodayItem = {
+  mistake_id: string;
+  subject_id: string;
+  grade_level_id: string;
+  subject_name?: string | null;
+  grade_name?: string | null;
+  stem_preview: string;
+  analysis: string;
+  answer: string;
+  is_mastered: boolean;
+  review_stage: number;
+  next_review_at: string;
+  image_path?: string | null;
+};
+
+export type ReviewToday = {
+  daily_target: number;
+  due_total: number;
+  today_completed: number;
+  streak_days: number;
+  items: ReviewTodayItem[];
+  settings: ReviewSettings;
+};
+
+export async function fetchReviewSettings() {
+  const { data } = await http.get<ReviewSettings>("/api/review/settings");
+  return data;
+}
+
+export async function updateReviewSettings(payload: Partial<ReviewSettings>) {
+  const { data } = await http.patch<ReviewSettings>("/api/review/settings", payload);
+  return data;
+}
+
+export async function fetchReviewToday(params?: {
+  grade_level_id?: string | null;
+  subject_id?: string | null;
+}) {
+  const { data } = await http.get<ReviewToday>("/api/review/today", { params: params ?? {} });
+  return data;
+}
+
+export type ReviewStatsCharts = {
+  streak_days: number;
+  today_completed: number;
+  daily_target: number;
+  due_total: number;
+  total_reviewed_all_time: number;
+  daily_trend: { date: string; review_count: number }[];
+  by_result: { result_code: string; result_label: string; count: number }[];
+};
+
+export async function fetchReviewStatsCharts() {
+  const { data } = await http.get<ReviewStatsCharts>("/api/stats/review");
+  return data;
+}
+
+export async function submitReviewRecord(payload: {
+  mistake_id: string;
+  result: "good" | "again";
+  grade_level_id?: string | null;
+  subject_id?: string | null;
+}) {
+  const { data } = await http.post<{
+    mistake_id: string;
+    review_stage: number;
+    next_review_at: string;
+    today_completed: number;
+    streak_days: number;
+  }>("/api/review/record", payload);
+  return data;
+}

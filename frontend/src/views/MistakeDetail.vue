@@ -188,7 +188,16 @@ async function markMastered() {
             >
               标记为已掌握
             </NButton>
-            <NButton size="small" type="primary" @click="router.push({ path: `/mistakes/${id}/practice`, query: route.query })">
+            <NButton
+              size="small"
+              type="primary"
+              @click="
+                router.push({
+                  path: `/mistakes/${id}/practice`,
+                  query: { ...route.query, from: 'detail' },
+                })
+              "
+            >
               举一反三
             </NButton>
             <NButton size="small" @click="backToList">返回列表</NButton>

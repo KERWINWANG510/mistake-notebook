@@ -5,10 +5,20 @@ from sqlalchemy import case, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.models import GradeLevel, Mistake, Subject, User
+from app.models import GradeLevel, Mistake, ReviewSession, ReviewSessionItem, Subject, User
 from app.routers.deps import get_current_user
 from app.error_reasons import ERROR_REASON_OPTIONS, canonical_error_reason
 from app.mistake_sources import MISTAKE_SOURCE_OPTIONS
+from app.review_helpers import (
+    REVIEW_RESULT_LABELS,
+    REVIEW_TREND_DAYS,
+    compute_streak_days,
+    get_or_create_settings,
+    query_due_total,
+    query_review_by_result,
+    query_review_daily_trend,
+    today_completed_count,
+)
 from app.schemas import (
     MistakeStatsErrorReasonHeatmap,
     MistakeStatsGradeRow,
@@ -16,6 +26,9 @@ from app.schemas import (
     MistakeStatsSourceRow,
     MistakeStatsSubjectRow,
     MistakeStatsTagRow,
+    ReviewStatsChartsOut,
+    ReviewStatsDailyRow,
+    ReviewStatsResultRow,
 )
 
 router = APIRouter(prefix="/api/stats", tags=["stats"])
@@ -231,4 +244,43 @@ async def mistake_stats_overview(
         by_subject=by_subject,
         by_source=by_source,
         by_tag=by_tag,
+    )
+
+
+@router.get("/review", response_model=ReviewStatsChartsOut)
+async def review_stats_charts(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> ReviewStatsChartsOut:
+    """今日复习统计：打卡指标、近 N 日趋势、复习结果分布。"""
+    settings = await get_or_create_settings(db, user.id)
+    trend_rows = await query_review_daily_trend(db, user.id, days=REVIEW_TREND_DAYS)
+    result_rows = await query_review_by_result(db, user.id)
+    counts_by_code = {code: 0 for code in REVIEW_RESULT_LABELS}
+    for code, cnt in result_rows:
+        if code in counts_by_code:
+            counts_by_code[code] = cnt
+    by_result = [
+        ReviewStatsResultRow(result_code=code, result_label=label, count=counts_by_code[code])
+        for code, label in REVIEW_RESULT_LABELS.items()
+    ]
+    total_items_q = (
+        select(func.count())
+        .select_from(ReviewSessionItem)
+        .join(ReviewSession, ReviewSession.id == ReviewSessionItem.session_id)
+        .where(ReviewSession.user_id == user.id)
+    )
+    total_reviewed = int((await db.execute(total_items_q)).scalar_one())
+    return ReviewStatsChartsOut(
+        streak_days=await compute_streak_days(db, user.id),
+        today_completed=await today_completed_count(db, user.id),
+        daily_target=settings.daily_review_target,
+        due_total=await query_due_total(
+            db, user.id, include_mastered=settings.include_mastered_in_review
+        ),
+        total_reviewed_all_time=total_reviewed,
+        daily_trend=[
+            ReviewStatsDailyRow(date=d.isoformat(), review_count=cnt) for d, cnt in trend_rows
+        ],
+        by_result=by_result,
     )

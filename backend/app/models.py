@@ -1,8 +1,8 @@
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, LargeBinary, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, LargeBinary, String, Text, UniqueConstraint
 from sqlalchemy.dialects.sqlite import JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -33,6 +33,9 @@ class User(Base):
     )
 
     mistakes: Mapped[list["Mistake"]] = relationship(back_populates="owner")
+    review_settings: Mapped["UserReviewSettings | None"] = relationship(
+        back_populates="user", uselist=False
+    )
 
 
 class Subject(Base):
@@ -132,6 +135,117 @@ class Mistake(Base):
     owner: Mapped["User | None"] = relationship(back_populates="mistakes")
     subject: Mapped["Subject"] = relationship(back_populates="mistakes")
     grade: Mapped["GradeLevel"] = relationship(back_populates="mistakes")
+    review_state: Mapped["MistakeReview | None"] = relationship(
+        back_populates="mistake", uselist=False
+    )
+
+
+class UserReviewSettings(Base):
+    """用户复习计划偏好（通用设置）。"""
+
+    __tablename__ = "user_review_settings"
+
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id"), primary_key=True, comment="用户 ID"
+    )
+    include_mastered_in_review: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False, comment="是否将已掌握题纳入复习计划"
+    )
+    daily_review_target: Mapped[int] = mapped_column(
+        Integer, default=10, nullable=False, comment="每日复习目标题数"
+    )
+    review_grade_level_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("grade_levels.id"), nullable=True, comment="复习范围：年级 ID"
+    )
+    review_subject_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("subjects.id"), nullable=True, comment="复习范围：科目 ID"
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+    user: Mapped["User"] = relationship(back_populates="review_settings")
+
+
+class MistakeReview(Base):
+    """单道错题的复习调度状态。"""
+
+    __tablename__ = "mistake_reviews"
+    __table_args__ = (UniqueConstraint("mistake_id", name="uq_mistake_review_mistake"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id"), nullable=False, index=True, comment="用户 ID"
+    )
+    mistake_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("mistakes.id"), nullable=False, comment="错题 ID"
+    )
+    review_stage: Mapped[int] = mapped_column(
+        Integer, default=0, nullable=False, comment="复习阶段（0 起，影响下次间隔）"
+    )
+    next_review_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, comment="下次应复习时间（UTC）"
+    )
+    last_reviewed_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True, comment="上次复习时间"
+    )
+    last_result: Mapped[str | None] = mapped_column(
+        String(16), nullable=True, comment="上次结果：good / again"
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+    mistake: Mapped["Mistake"] = relationship(back_populates="review_state")
+
+
+class ReviewSession(Base):
+    """一次复习打卡会话（按日、范围统计）。"""
+
+    __tablename__ = "review_sessions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id"), nullable=False, index=True, comment="用户 ID"
+    )
+    review_date: Mapped[date] = mapped_column(
+        Date, nullable=False, comment="复习打卡日期（UTC 日期）"
+    )
+    grade_level_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("grade_levels.id"), nullable=True, comment="本次范围年级"
+    )
+    subject_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("subjects.id"), nullable=True, comment="本次范围科目"
+    )
+    completed_count: Mapped[int] = mapped_column(
+        Integer, default=0, nullable=False, comment="本次已完成复习题数"
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+    items: Mapped[list["ReviewSessionItem"]] = relationship(back_populates="session")
+
+
+class ReviewSessionItem(Base):
+    """复习会话中的单题记录。"""
+
+    __tablename__ = "review_session_items"
+    __table_args__ = (UniqueConstraint("session_id", "mistake_id", name="uq_review_session_mistake"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    session_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("review_sessions.id"), nullable=False, index=True, comment="会话 ID"
+    )
+    mistake_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("mistakes.id"), nullable=False, comment="错题 ID"
+    )
+    result: Mapped[str] = mapped_column(String(16), nullable=False, comment="结果：good / again")
+    reviewed_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+    session: Mapped["ReviewSession"] = relationship(back_populates="items")
 
 
 class AiProviderPreset(Base):

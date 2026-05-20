@@ -8,7 +8,10 @@ const router = useRouter();
 const auth = useAuthStore();
 
 const subItems = computed(() => {
-  const items = [{ label: "AI 设置", key: "/settings/ai" }];
+  const items = [
+    { label: "通用设置", key: "/settings/general" },
+    { label: "AI 设置", key: "/settings/ai" },
+  ];
   if (auth.me?.is_admin) {
     items.push({ label: "用户管理", key: "/settings/users" });
   }
@@ -18,7 +21,9 @@ const subItems = computed(() => {
 const activeSubKey = computed(() => {
   const p = route.path;
   if (p.startsWith("/settings/users")) return "/settings/users";
-  return "/settings/ai";
+  if (p.startsWith("/settings/ai")) return "/settings/ai";
+  if (p.startsWith("/settings/general")) return "/settings/general";
+  return "/settings/general";
 });
 
 function go(key: string) {
@@ -31,7 +36,7 @@ function go(key: string) {
     <header class="page-header system-settings__header">
       <h1 class="page-header__title">系统设置</h1>
       <p class="page-header__desc">
-        管理 AI 接入{{ auth.me?.is_admin ? "与系统用户账号" : "" }}；AI 配置仅对当前登录用户生效。
+        通用复习计划、AI 接入{{ auth.me?.is_admin ? "与系统用户账号" : "" }}；配置仅对当前登录用户生效。
       </p>
     </header>
 
@@ -108,7 +113,7 @@ function go(key: string) {
   .system-settings__subnav {
     display: inline-flex;
     flex-wrap: nowrap;
-    max-width: 400px;
+    max-width: 480px;
   }
 
   .system-settings__subnav-btn {

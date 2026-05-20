@@ -23,6 +23,8 @@ const router = useRouter();
 const message = useMessage();
 
 const id = computed(() => route.params.id as string);
+const fromReview = computed(() => route.query.from === "review");
+const backLabel = computed(() => (fromReview.value ? "返回复习" : "返回详情"));
 const loading = ref(true);
 const generating = ref(false);
 const checking = ref(false);
@@ -94,7 +96,7 @@ async function load() {
     row.value = await fetchMistake(id.value);
   } catch (e) {
     message.error((e as Error).message);
-    router.push(`/mistakes/${id.value}`);
+    goBack();
   } finally {
     loading.value = false;
   }
@@ -150,8 +152,21 @@ async function onCheck() {
   }
 }
 
-function backToDetail() {
-  router.push({ path: `/mistakes/${id.value}`, query: route.query });
+function goBack() {
+  if (fromReview.value) {
+    const query: Record<string, string> = {};
+    if (typeof route.query.grade === "string") query.grade = route.query.grade;
+    if (typeof route.query.subject === "string") query.subject = route.query.subject;
+    if (typeof route.query.mistake_id === "string") query.mistake_id = route.query.mistake_id;
+    router.push({ path: "/review", query });
+    return;
+  }
+  const query: Record<string, string> = {};
+  for (const [key, val] of Object.entries(route.query)) {
+    if (key === "from" || typeof val !== "string") continue;
+    query[key] = val;
+  }
+  router.push({ path: `/mistakes/${id.value}`, query });
 }
 
 async function addToNotebook() {
@@ -272,14 +287,14 @@ async function addToNotebook() {
       <Teleport to="body">
         <footer v-if="question && !checkResult" class="app-actions app-actions--bar app-actions--fixed">
           <div class="app-actions--fixed-inner">
-            <NButton size="small" @click="backToDetail">返回详情</NButton>
+            <NButton size="small" @click="goBack">{{ backLabel }}</NButton>
             <NButton type="primary" size="small" :loading="checking" :disabled="!canSubmit" @click="onCheck">提交批改</NButton>
           </div>
         </footer>
       </Teleport>
 
       <footer v-if="!question || checkResult" class="app-actions app-actions--bar practice__footer">
-        <NButton size="small" @click="backToDetail">返回详情</NButton>
+        <NButton size="small" @click="goBack">{{ backLabel }}</NButton>
       </footer>
     </div>
   </NSpin>

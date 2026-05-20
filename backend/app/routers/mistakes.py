@@ -412,6 +412,10 @@ async def create_mistake(
         mistake_source=source_code,
     )
     db.add(row)
+    await db.flush()
+    from app.review_helpers import ensure_mistake_review
+
+    await ensure_mistake_review(db, row)
     await db.commit()
     q = (
         select(Mistake)

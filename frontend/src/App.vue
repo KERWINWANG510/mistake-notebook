@@ -44,12 +44,15 @@ type NavChild = {
 type NavItem = {
   label: string;
   key: string;
-  icon: "book" | "subject" | "grade" | "ai" | "users" | "stats" | "practice" | "settings";
+  icon: "book" | "subject" | "grade" | "ai" | "users" | "stats" | "practice" | "settings" | "review";
   children?: NavChild[];
 };
 
 const settingsChildren = computed<NavChild[]>(() => {
-  const children: NavChild[] = [{ label: "AI 设置", key: "/settings/ai" }];
+  const children: NavChild[] = [
+    { label: "通用设置", key: "/settings/general" },
+    { label: "AI 设置", key: "/settings/ai" },
+  ];
   if (auth.me?.is_admin) {
     children.push({ label: "用户管理", key: "/settings/users" });
   }
@@ -58,6 +61,7 @@ const settingsChildren = computed<NavChild[]>(() => {
 
 const navItems = computed<NavItem[]>(() => [
   { label: "错题本", key: "/mistakes", icon: "book" },
+  { label: "今日复习", key: "/review", icon: "review" },
   { label: "模拟卷", key: "/practice/mock-paper", icon: "practice" },
   { label: "统计", key: "/stats", icon: "stats" },
   { label: "年级科目", key: "/grade-subjects", icon: "subject" },
@@ -72,6 +76,7 @@ const navItems = computed<NavItem[]>(() => [
 const activeKey = computed(() => {
   const p = route.path;
   if (p.startsWith("/mistakes")) return "/mistakes";
+  if (p.startsWith("/review")) return "/review";
   if (p.startsWith("/practice")) return "/practice/mock-paper";
   if (p.startsWith("/stats")) return "/stats";
   if (p.startsWith("/settings")) return p;

@@ -8,6 +8,7 @@ import type {
   MistakeStatsErrorReasonHeatmap,
   MistakeStatsOverview,
   MistakeStatsTagRow,
+  ReviewStatsCharts,
   Subject,
 } from "../api/client";
 import {
@@ -15,6 +16,7 @@ import {
   fetchMistakeStatsErrorReasonHeatmap,
   fetchMistakeStatsOverview,
   fetchMistakeStatsTags,
+  fetchReviewStatsCharts,
   fetchSubjects,
 } from "../api/client";
 
@@ -23,6 +25,7 @@ const loading = ref(true);
 const tagLoading = ref(false);
 const heatmapLoading = ref(false);
 const overview = ref<MistakeStatsOverview | null>(null);
+const reviewStats = ref<ReviewStatsCharts | null>(null);
 const heatmapData = ref<MistakeStatsErrorReasonHeatmap | null>(null);
 
 const grades = ref<Grade[]>([]);
@@ -35,6 +38,8 @@ const wrapSubject = ref<HTMLDivElement | null>(null);
 const wrapTag = ref<HTMLDivElement | null>(null);
 const wrapSource = ref<HTMLDivElement | null>(null);
 const wrapHeatmap = ref<HTMLDivElement | null>(null);
+const wrapReviewTrend = ref<HTMLDivElement | null>(null);
+const wrapReviewResult = ref<HTMLDivElement | null>(null);
 
 const narrow = ref(false);
 function updateNarrow() {
@@ -46,6 +51,13 @@ let chartSubject: ReturnType<typeof echarts.init> | null = null;
 let chartTag: ReturnType<typeof echarts.init> | null = null;
 let chartSource: ReturnType<typeof echarts.init> | null = null;
 let chartHeatmap: ReturnType<typeof echarts.init> | null = null;
+let chartReviewTrend: ReturnType<typeof echarts.init> | null = null;
+let chartReviewResult: ReturnType<typeof echarts.init> | null = null;
+
+const REVIEW_RESULT_COLORS: Record<string, string> = {
+  good: "#10b981",
+  again: "#f59e0b",
+};
 
 /** 知识点标签图：单独展示前 N 个，其余合并为「其他」 */
 const TAG_CHART_TOP_N = 5;
@@ -90,6 +102,48 @@ function coloredBarData(values: number[], horizontal: boolean) {
       borderRadius: radius,
     },
   }));
+}
+
+function formatTrendDate(iso: string) {
+  const p = iso.split("-");
+  if (p.length === 3) return `${p[1]}-${p[2]}`;
+  return iso;
+}
+
+function pieChart(
+  items: { name: string; value: number; color?: string }[],
+  compact: boolean,
+): EChartsOption {
+  const hasData = items.some((i) => i.value > 0);
+  if (!hasData) {
+    return emptyOption("暂无复习记录，请先在「今日复习」中完成打卡");
+  }
+  return {
+    tooltip: {
+      trigger: "item",
+      formatter: "{b}：{c} 次（{d}%）",
+    },
+    legend: {
+      bottom: 0,
+      left: "center",
+      textStyle: { fontSize: compact ? 11 : 12, color: "#64748b" },
+    },
+    series: [
+      {
+        type: "pie",
+        radius: compact ? ["36%", "58%"] : ["40%", "64%"],
+        center: ["50%", "44%"],
+        avoidLabelOverlap: true,
+        itemStyle: { borderRadius: 4, borderColor: "#fff", borderWidth: 2 },
+        label: { fontSize: compact ? 11 : 12 },
+        data: items.map((i) => ({
+          name: i.name,
+          value: i.value,
+          itemStyle: i.color ? { color: i.color } : undefined,
+        })),
+      },
+    ],
+  };
 }
 
 function emptyOption(sub: string): EChartsOption {
@@ -239,9 +293,17 @@ function disposeHeatmap() {
   chartHeatmap = null;
 }
 
+function disposeReviewCharts() {
+  chartReviewTrend?.dispose();
+  chartReviewResult?.dispose();
+  chartReviewTrend = null;
+  chartReviewResult = null;
+}
+
 function disposeAll() {
   disposeGradeSubject();
   disposeTag();
+  disposeReviewCharts();
   disposeHeatmap();
 }
 
@@ -251,6 +313,8 @@ function resizeAll() {
   chartSource?.resize();
   chartTag?.resize();
   chartHeatmap?.resize();
+  chartReviewTrend?.resize();
+  chartReviewResult?.resize();
 }
 
 function heatmapOption(data: MistakeStatsErrorReasonHeatmap, compact: boolean): EChartsOption {
@@ -366,6 +430,37 @@ async function reloadHeatmapChart() {
 
 function sourceEmptySubtext() {
   return "暂无已标注错题来源的错题，请在录入或编辑时选择来源";
+}
+
+function renderReviewCharts(data: ReviewStatsCharts) {
+  const compact = narrow.value;
+
+  if (wrapReviewTrend.value) {
+    const labels = data.daily_trend.map((r) => formatTrendDate(r.date));
+    const vals = data.daily_trend.map((r) => r.review_count);
+    const has = vals.some((v) => v > 0);
+    chartReviewTrend?.dispose();
+    chartReviewTrend = echarts.init(wrapReviewTrend.value);
+    chartReviewTrend.setOption(
+      has
+        ? verticalBar(labels, vals, "复习题数", compact)
+        : emptyOption("近 14 日暂无复习记录"),
+      true,
+    );
+    chartReviewTrend.resize();
+  }
+
+  if (wrapReviewResult.value) {
+    const items = data.by_result.map((r) => ({
+      name: r.result_label,
+      value: r.count,
+      color: REVIEW_RESULT_COLORS[r.result_code],
+    }));
+    chartReviewResult?.dispose();
+    chartReviewResult = echarts.init(wrapReviewResult.value);
+    chartReviewResult.setOption(pieChart(items, compact), true);
+    chartReviewResult.resize();
+  }
 }
 
 function renderGradeSubjectCharts(data: MistakeStatsOverview) {
@@ -493,8 +588,8 @@ watch(tagSubjectId, () => {
 });
 
 watch(narrow, () => {
-  if (!overview.value) return;
-  renderGradeSubjectCharts(overview.value);
+  if (overview.value) renderGradeSubjectCharts(overview.value);
+  if (reviewStats.value) renderReviewCharts(reviewStats.value);
   void reloadTagChart();
   void renderHeatmapChart(heatmapData.value);
 });
@@ -505,16 +600,22 @@ onMounted(async () => {
   loading.value = true;
   overview.value = null;
   try {
-    const [data, gradeList] = await Promise.all([fetchMistakeStatsOverview(), fetchGrades()]);
+    const [data, gradeList, review] = await Promise.all([
+      fetchMistakeStatsOverview(),
+      fetchGrades(),
+      fetchReviewStatsCharts(),
+    ]);
     overview.value = data;
+    reviewStats.value = review;
     grades.value = gradeList;
     await loadTagSubjectsForGrade(null);
     await nextTick();
     renderGradeSubjectCharts(data);
+    renderReviewCharts(review);
     renderTagChart(data.by_tag);
     await reloadHeatmapChart();
     roList = [];
-    for (const r of [wrapGrade, wrapSubject, wrapSource, wrapTag, wrapHeatmap]) {
+    for (const r of [wrapGrade, wrapSubject, wrapSource, wrapTag, wrapHeatmap, wrapReviewTrend, wrapReviewResult]) {
       if (!r.value) continue;
       const obs = new ResizeObserver(() => resizeAll());
       obs.observe(r.value);
@@ -542,9 +643,9 @@ onBeforeUnmount(() => {
     <header class="page-header statistics__header">
       <h1 class="page-header__title">错题统计</h1>
       <p class="page-header__desc statistics__header-desc">
-        按当前登录账号汇总全部错题；顶部为总体指标，下方按年级、科目、错题来源、错因×科目热力图、知识点标签展示分布。知识点标签图可按年级、科目筛选。
+        按当前登录账号汇总错题与今日复习打卡；含年级、科目、来源、错因热力图、知识点标签及近 14 日复习趋势。知识点标签图可按年级、科目筛选。
       </p>
-      <p v-if="narrow" class="statistics__header-mobile-tip">总览指标 · 年级 / 科目 / 知识点分布</p>
+      <p v-if="narrow" class="statistics__header-mobile-tip">错题总览 · 今日复习 · 年级 / 科目分布</p>
     </header>
 
     <NSpin :show="loading">
@@ -566,7 +667,54 @@ onBeforeUnmount(() => {
             />
           </article>
         </div>
+
+        <template v-if="reviewStats">
+          <h2 class="statistics__section-title">今日复习</h2>
+          <div class="statistics__kpis statistics__kpis--review">
+            <article class="statistics__kpi statistics__kpi--review surface-card">
+              <NStatistic label="连续打卡" tabular-nums :value="reviewStats.streak_days" suffix=" 天" />
+            </article>
+            <article class="statistics__kpi statistics__kpi--review surface-card">
+              <NStatistic label="今日进度" tabular-nums>
+                <span class="statistics__kpi-value">{{ reviewStats.today_completed }} / {{ reviewStats.daily_target }}</span>
+              </NStatistic>
+            </article>
+            <article class="statistics__kpi statistics__kpi--review surface-card">
+              <NStatistic label="待复习（今日到期）" tabular-nums :value="reviewStats.due_total" />
+            </article>
+            <article class="statistics__kpi statistics__kpi--review surface-card">
+              <NStatistic label="累计复习次数" tabular-nums :value="reviewStats.total_reviewed_all_time" />
+            </article>
+          </div>
+        </template>
+
         <div class="statistics__grid">
+          <NCard
+            v-if="reviewStats"
+            class="surface-card statistics__card statistics__panel"
+            size="small"
+            :bordered="false"
+          >
+            <template #header>
+              <div class="statistics__panel-head">
+                <span class="statistics__panel-title">近 14 日复习题数</span>
+              </div>
+            </template>
+            <div ref="wrapReviewTrend" class="statistics__chart" />
+          </NCard>
+          <NCard
+            v-if="reviewStats"
+            class="surface-card statistics__card statistics__panel"
+            size="small"
+            :bordered="false"
+          >
+            <template #header>
+              <div class="statistics__panel-head">
+                <span class="statistics__panel-title">复习结果分布</span>
+              </div>
+            </template>
+            <div ref="wrapReviewResult" class="statistics__chart" />
+          </NCard>
           <NCard class="surface-card statistics__card statistics__panel" size="small" :bordered="false">
             <template #header>
               <div class="statistics__panel-head">
@@ -703,6 +851,31 @@ onBeforeUnmount(() => {
   color: #059669;
 }
 
+.statistics__section-title {
+  margin: 24px 0 12px;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--app-text, #0f172a);
+  letter-spacing: 0.02em;
+}
+
+.statistics__kpis--review {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-bottom: 20px;
+}
+
+.statistics__kpi--review :deep(.n-statistic-value__content) {
+  color: #4f46e5;
+}
+
+.statistics__kpi-value {
+  font-size: 1.5rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: #4f46e5;
+  line-height: 1.2;
+}
+
 .statistics__grid {
   display: grid;
   gap: 20px;
@@ -819,6 +992,19 @@ onBeforeUnmount(() => {
     font-size: 12px;
     line-height: 1.4;
     color: var(--app-text-muted, #64748b);
+  }
+
+  .statistics__kpis--review {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .statistics__section-title {
+    margin: 16px 0 8px;
+    font-size: 0.95rem;
+  }
+
+  .statistics__kpi-value {
+    font-size: 1.2rem;
   }
 
   .statistics__kpis {

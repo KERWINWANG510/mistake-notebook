@@ -42,6 +42,11 @@ const router = createRouter({
       component: () => import("../views/StatisticsView.vue"),
     },
     {
+      path: "/review",
+      name: "review-today",
+      component: () => import("../views/ReviewTodayView.vue"),
+    },
+    {
       path: "/practice/mock-paper",
       name: "mock-paper",
       component: () => import("../views/MockPaperView.vue"),
@@ -57,8 +62,13 @@ const router = createRouter({
     {
       path: "/settings",
       component: () => import("../views/SystemSettingsLayout.vue"),
-      redirect: "/settings/ai",
+      redirect: "/settings/general",
       children: [
+        {
+          path: "general",
+          name: "settings-general",
+          component: () => import("../views/GeneralSettings.vue"),
+        },
         {
           path: "ai",
           name: "settings-ai",

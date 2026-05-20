@@ -332,3 +332,38 @@ async def backfill_mistake_user_ids(session: AsyncSession) -> None:
         return
     await session.execute(text("UPDATE mistakes SET user_id = :uid WHERE user_id IS NULL"), {"uid": admin.id})
     await session.commit()
+
+
+async def backfill_mistake_reviews(session: AsyncSession) -> None:
+    """为尚无复习调度记录的错题补全 mistake_reviews，并将从未复习且排到未来的题改为今日到期。"""
+    from sqlalchemy import update
+
+    from app.models import Mistake, MistakeReview
+    from app.review_helpers import ensure_mistake_review
+    from app.review_schedule import end_of_utc_day, start_of_utc_day
+
+    r = await session.execute(
+        select(Mistake).where(Mistake.user_id.is_not(None))
+    )
+    mistakes = r.scalars().all()
+    if not mistakes:
+        return
+    existing = await session.execute(select(MistakeReview.mistake_id))
+    have = {row[0] for row in existing.all()}
+    added = False
+    for m in mistakes:
+        if m.id in have:
+            continue
+        await ensure_mistake_review(session, m)
+        added = True
+    today_start = start_of_utc_day()
+    await session.execute(
+        update(MistakeReview)
+        .where(MistakeReview.last_reviewed_at.is_(None))
+        .where(MistakeReview.next_review_at > end_of_utc_day())
+        .values(next_review_at=today_start)
+    )
+    if added:
+        await session.commit()
+    else:
+        await session.commit()

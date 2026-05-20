@@ -225,6 +225,92 @@ class MistakeStatsOverview(BaseModel):
     by_tag: list[MistakeStatsTagRow]
 
 
+class ReviewSettingsOut(BaseModel):
+    include_mastered_in_review: bool = Field(description="是否将已掌握题纳入复习计划")
+    daily_review_target: int = Field(description="每日复习目标题数", ge=1, le=200)
+    review_grade_level_id: str | None = Field(None, description="复习范围年级 ID")
+    review_subject_id: str | None = Field(None, description="复习范围科目 ID")
+    review_grade_name: str | None = None
+    review_subject_name: str | None = None
+
+
+class ReviewSettingsUpdate(BaseModel):
+    include_mastered_in_review: bool | None = None
+    daily_review_target: int | None = Field(None, ge=1, le=200)
+    review_grade_level_id: str | None = None
+    review_subject_id: str | None = None
+
+
+class ReviewTodayItemOut(BaseModel):
+    mistake_id: str
+    subject_id: str
+    grade_level_id: str
+    subject_name: str | None = None
+    grade_name: str | None = None
+    stem_preview: str
+    analysis: str
+    answer: str
+    is_mastered: bool
+    review_stage: int
+    next_review_at: datetime
+    image_path: str | None = None
+
+
+class ReviewTodayOut(BaseModel):
+    daily_target: int
+    due_total: int
+    today_completed: int
+    streak_days: int
+    items: list[ReviewTodayItemOut]
+    settings: ReviewSettingsOut
+
+
+class ReviewRecordBody(BaseModel):
+    mistake_id: str
+    result: Literal["good", "again"]
+    grade_level_id: str | None = None
+    subject_id: str | None = None
+
+
+class ReviewRecordOut(BaseModel):
+    mistake_id: str
+    review_stage: int
+    next_review_at: datetime
+    today_completed: int
+    streak_days: int
+
+
+class ReviewStatsOut(BaseModel):
+    streak_days: int
+    today_completed: int
+    daily_target: int
+    due_total: int
+    total_reviewed_all_time: int
+
+
+class ReviewStatsDailyRow(BaseModel):
+    date: str = Field(description="日期 YYYY-MM-DD")
+    review_count: int = Field(description="当日完成复习题数")
+
+
+class ReviewStatsResultRow(BaseModel):
+    result_code: str
+    result_label: str
+    count: int
+
+
+class ReviewStatsChartsOut(BaseModel):
+    """统计页：今日复习相关指标与图表数据。"""
+
+    streak_days: int = Field(description="连续打卡天数")
+    today_completed: int = Field(description="今日已完成复习题数")
+    daily_target: int = Field(description="每日复习目标")
+    due_total: int = Field(description="当前待复习（今日到期）题数")
+    total_reviewed_all_time: int = Field(description="累计复习做题次数")
+    daily_trend: list[ReviewStatsDailyRow] = Field(description="近 N 日每日复习题数")
+    by_result: list[ReviewStatsResultRow] = Field(description="复习结果分布（会了/再练练）")
+
+
 class SubjectMistakeSummary(BaseModel):
     subject_id: str
     subject_name: str
