@@ -41,6 +41,16 @@ class UserUpdateBody(BaseModel):
     is_admin: bool | None = None
 
 
+class UserProfileUpdateBody(BaseModel):
+    """当前用户自助修改资料（不可改管理员标志）。"""
+
+    username: str | None = Field(None, min_length=2, max_length=64)
+    password: str | None = Field(None, min_length=4, max_length=128)
+    full_name: str | None = Field(None, min_length=1, max_length=64)
+    education_stage: EducationStageCode | None = None
+    enrollment_year: int | None = Field(None, ge=1980, le=2050)
+
+
 class EducationStageOut(BaseModel):
     code: str
     name: str

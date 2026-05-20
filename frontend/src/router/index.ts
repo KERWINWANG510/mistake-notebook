@@ -55,16 +55,25 @@ const router = createRouter({
     { path: "/grades", redirect: "/grade-subjects" },
     { path: "/practice", redirect: "/practice/mock-paper" },
     {
-      path: "/settings/ai",
-      name: "settings-ai",
-      component: () => import("../views/AiSettings.vue"),
+      path: "/settings",
+      component: () => import("../views/SystemSettingsLayout.vue"),
+      redirect: "/settings/ai",
+      children: [
+        {
+          path: "ai",
+          name: "settings-ai",
+          component: () => import("../views/AiSettings.vue"),
+        },
+        {
+          path: "users",
+          name: "settings-users",
+          component: () => import("../views/UsersAdmin.vue"),
+          meta: { requiresAdmin: true },
+        },
+      ],
     },
-    {
-      path: "/admin/users",
-      name: "admin-users",
-      component: () => import("../views/UsersAdmin.vue"),
-      meta: { requiresAdmin: true },
-    },
+    { path: "/admin/users", redirect: "/settings/users" },
+    { path: "/settings/user", redirect: "/settings/users" },
   ],
 });
 

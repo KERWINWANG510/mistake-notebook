@@ -7,7 +7,15 @@ from app.database import get_db
 from app.education import EDUCATION_STAGES
 from app.models import Mistake, User
 from app.routers.deps import get_current_user, require_admin
-from app.schemas import EducationStageOut, LoginBody, TokenOut, UserCreateBody, UserOut, UserUpdateBody
+from app.schemas import (
+    EducationStageOut,
+    LoginBody,
+    TokenOut,
+    UserCreateBody,
+    UserOut,
+    UserProfileUpdateBody,
+    UserUpdateBody,
+)
 from app.services.jwt_tokens import create_access_token
 from app.services.password import hash_password, verify_password
 
@@ -37,6 +45,37 @@ async def login(body: LoginBody, db: AsyncSession = Depends(get_db)) -> TokenOut
 @router.get("/me", response_model=UserOut)
 async def me(user: User = Depends(get_current_user)) -> UserOut:
     return UserOut.model_validate(user)
+
+
+@router.patch("/me", response_model=UserOut)
+async def update_me(
+    body: UserProfileUpdateBody,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> UserOut:
+    row = user
+    if body.username is not None:
+        username = body.username.strip()
+        if username != row.username:
+            exists = await db.execute(select(User).where(User.username == username))
+            if exists.scalar_one_or_none():
+                raise HTTPException(status_code=400, detail="用户名已存在")
+            row.username = username
+    if body.full_name is not None:
+        row.full_name = body.full_name.strip()
+    if body.education_stage is not None:
+        row.education_stage = body.education_stage
+    if body.enrollment_year is not None:
+        row.enrollment_year = body.enrollment_year
+    if body.password is not None:
+        row.password_hash = hash_password(body.password)
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail="用户名已存在") from None
+    await db.refresh(row)
+    return UserOut.model_validate(row)
 
 
 @router.get("/users", response_model=list[UserOut])

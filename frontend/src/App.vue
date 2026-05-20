@@ -36,34 +36,49 @@ const appVersion = ref(import.meta.env.VITE_APP_VERSION?.trim() || "dev");
 
 const drawerWidth = computed(() => Math.min(320, Math.round(windowWidth.value * 0.88)));
 
+type NavChild = {
+  label: string;
+  key: string;
+};
+
 type NavItem = {
   label: string;
   key: string;
-  icon: "book" | "subject" | "grade" | "ai" | "users" | "stats" | "practice";
+  icon: "book" | "subject" | "grade" | "ai" | "users" | "stats" | "practice" | "settings";
+  children?: NavChild[];
 };
 
-const navItems = computed<NavItem[]>(() => {
-  const items: NavItem[] = [
-    { label: "错题本", key: "/mistakes", icon: "book" },
-    { label: "模拟卷", key: "/practice/mock-paper", icon: "practice" },
-    { label: "统计", key: "/stats", icon: "stats" },
-    { label: "年级科目", key: "/grade-subjects", icon: "subject" },
-    { label: "AI 设置", key: "/settings/ai", icon: "ai" },
-  ];
+const settingsChildren = computed<NavChild[]>(() => {
+  const children: NavChild[] = [{ label: "AI 设置", key: "/settings/ai" }];
   if (auth.me?.is_admin) {
-    items.push({ label: "用户管理", key: "/admin/users", icon: "users" });
+    children.push({ label: "用户管理", key: "/settings/users" });
   }
-  return items;
+  return children;
 });
+
+const navItems = computed<NavItem[]>(() => [
+  { label: "错题本", key: "/mistakes", icon: "book" },
+  { label: "模拟卷", key: "/practice/mock-paper", icon: "practice" },
+  { label: "统计", key: "/stats", icon: "stats" },
+  { label: "年级科目", key: "/grade-subjects", icon: "subject" },
+  {
+    label: "系统设置",
+    key: "/settings",
+    icon: "settings",
+    children: settingsChildren.value,
+  },
+]);
 
 const activeKey = computed(() => {
   const p = route.path;
   if (p.startsWith("/mistakes")) return "/mistakes";
   if (p.startsWith("/practice")) return "/practice/mock-paper";
   if (p.startsWith("/stats")) return "/stats";
-  if (p.startsWith("/admin")) return p;
+  if (p.startsWith("/settings")) return p;
   return p;
 });
+
+const settingsExpanded = computed(() => route.path.startsWith("/settings"));
 
 const userInitial = computed(() => {
   const name = auth.me?.full_name || auth.me?.username || "?";
@@ -76,7 +91,14 @@ function go(key: string) {
 }
 
 function navActive(item: NavItem) {
+  if (item.children?.length) {
+    return route.path.startsWith(item.key);
+  }
   return activeKey.value === item.key;
+}
+
+function navChildActive(child: NavChild) {
+  return activeKey.value === child.key;
 }
 
 function logout() {
@@ -181,20 +203,46 @@ function logout() {
                 </div>
 
                 <nav class="app-nav-drawer__nav" aria-label="主导航">
-                  <button
-                    v-for="item in navItems"
-                    :key="item.key"
-                    type="button"
-                    class="app-nav-drawer__item"
-                    :class="{ 'app-nav-drawer__item--active': activeKey === item.key }"
-                    @click="go(item.key)"
-                  >
-                    <span class="app-nav-drawer__item-icon">
-                      <NavIcon :name="item.icon" />
-                    </span>
-                    <span class="app-nav-drawer__item-label">{{ item.label }}</span>
-                    <span class="app-nav-drawer__item-arrow" aria-hidden="true">›</span>
-                  </button>
+                  <template v-for="item in navItems" :key="item.key">
+                    <button
+                      v-if="!item.children?.length"
+                      type="button"
+                      class="app-nav-drawer__item"
+                      :class="{ 'app-nav-drawer__item--active': navActive(item) }"
+                      @click="go(item.key)"
+                    >
+                      <span class="app-nav-drawer__item-icon">
+                        <NavIcon :name="item.icon" />
+                      </span>
+                      <span class="app-nav-drawer__item-label">{{ item.label }}</span>
+                      <span class="app-nav-drawer__item-arrow" aria-hidden="true">›</span>
+                    </button>
+                    <div v-else class="app-nav-drawer__group">
+                      <button
+                        type="button"
+                        class="app-nav-drawer__item"
+                        :class="{ 'app-nav-drawer__item--open': settingsExpanded }"
+                        @click="go(item.children![0].key)"
+                      >
+                        <span class="app-nav-drawer__item-icon">
+                          <NavIcon :name="item.icon" />
+                        </span>
+                        <span class="app-nav-drawer__item-label">{{ item.label }}</span>
+                        <span class="app-nav-drawer__item-arrow" aria-hidden="true">›</span>
+                      </button>
+                      <button
+                        v-for="child in item.children"
+                        :key="child.key"
+                        type="button"
+                        class="app-nav-drawer__item app-nav-drawer__item--child"
+                        :class="{ 'app-nav-drawer__item--active': navChildActive(child) }"
+                        @click="go(child.key)"
+                      >
+                        <span class="app-nav-drawer__item-label">{{ child.label }}</span>
+                        <span class="app-nav-drawer__item-arrow" aria-hidden="true">›</span>
+                      </button>
+                    </div>
+                  </template>
                 </nav>
 
                 <div class="app-nav-drawer__footer">

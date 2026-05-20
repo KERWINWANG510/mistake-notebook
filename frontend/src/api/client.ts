@@ -685,6 +685,17 @@ export async function fetchEducationStages() {
   return data;
 }
 
+export async function updateMyProfile(payload: {
+  username?: string;
+  password?: string;
+  full_name?: string;
+  education_stage?: string;
+  enrollment_year?: number;
+}) {
+  const { data } = await http.patch<MeUser>("/api/auth/me", payload);
+  return data;
+}
+
 export async function fetchUserList() {
   const { data } = await http.get<MeUser[]>("/api/auth/users");
   return data;

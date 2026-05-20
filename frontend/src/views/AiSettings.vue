@@ -424,19 +424,16 @@ function openEdit(r: AiConfig) {
 </script>
 
 <template>
-  <NSpace vertical :size="16" class="page-root">
-    <header class="page-header">
-      <h1 class="page-header__title">AI 接入配置</h1>
-      <p class="page-header__desc">
-        以下配置仅对当前登录账号生效，与其他用户互不可见。主接入用于默认识图与解题；若识图或解题需走另一家厂商，可分别开启独立服务商并填写对应地址与密钥。
-      </p>
-    </header>
+  <NSpace vertical :size="16" class="ai-settings">
+    <p class="ai-settings__intro">
+      以下配置仅对当前登录账号生效，与其他用户互不可见。主接入用于默认识图与解题；若识图或解题需走另一家厂商，可分别开启独立服务商并填写对应地址与密钥。
+    </p>
     <NCard class="surface-card" title="配置列表" :segmented="{ content: true }">
       <NSpace vertical :size="12" style="width: 100%">
         <NButton type="primary" @click="openCreate">新建配置</NButton>
         <NSpin :show="loading">
-          <div class="entity-card-list">
-            <NCard v-for="r in rows" :key="r.id" class="entity-card mistake-row-card" size="small" embedded>
+          <div class="entity-card-list entity-card-list--auto-grid ai-settings__list">
+            <NCard v-for="r in rows" :key="r.id" class="entity-card ai-settings__card mistake-row-card" size="small" embedded>
               <div class="entity-card__head">
                 <span class="entity-card__title">{{ r.user_label }}</span>
                 <NTag v-if="r.is_active" type="success" size="small">当前</NTag>
@@ -596,3 +593,61 @@ function openEdit(r: AiConfig) {
     </NModal>
   </NSpace>
 </template>
+
+<style scoped>
+.ai-settings__intro {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--app-text-muted, #64748b);
+}
+
+/* 配置卡片：更紧凑，按宽度自动多列换行 */
+.ai-settings__list.entity-card-list--auto-grid {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr));
+  gap: 10px;
+}
+
+.ai-settings__list :deep(.ai-settings__card .n-card__content) {
+  padding: 10px 12px;
+}
+
+.ai-settings__list :deep(.entity-card__head) {
+  margin-bottom: 6px;
+}
+
+.ai-settings__list :deep(.entity-card__title) {
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.ai-settings__list :deep(.entity-card__rows) {
+  gap: 4px;
+}
+
+.ai-settings__list :deep(.entity-card__row) {
+  font-size: 12px;
+  gap: 8px;
+}
+
+.ai-settings__list :deep(.entity-card__label) {
+  flex: 0 0 3.5em;
+}
+
+.ai-settings__list :deep(.entity-card__value) {
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.ai-settings__list :deep(.entity-card__actions) {
+  margin-top: 8px;
+  padding-top: 8px;
+  gap: 6px;
+}
+
+@media (min-width: 900px) {
+  .ai-settings__list.entity-card-list--auto-grid {
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  }
+}
+</style>

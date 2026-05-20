@@ -190,11 +190,10 @@ async function remove(user: MeUser) {
 </script>
 
 <template>
-  <NSpace vertical :size="16" class="page-root">
-    <header class="page-header">
-      <h1 class="page-header__title">用户管理</h1>
-      <p class="page-header__desc">仅管理员可见；登录名为唯一登录账号，并记录姓名、教育阶段与入学年份。</p>
-    </header>
+  <NSpace vertical :size="16" class="users-admin">
+    <p class="users-admin__intro">
+      仅管理员可见；登录名为唯一登录账号，并记录姓名、教育阶段与入学年份。
+    </p>
     <NCard class="surface-card" title="账号列表" :segmented="{ content: true }">
       <NSpace vertical :size="12" style="width: 100%">
         <NButton type="primary" @click="openAddModal">新建用户</NButton>
@@ -302,6 +301,13 @@ async function remove(user: MeUser) {
 </template>
 
 <style scoped>
+.users-admin__intro {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--app-text-muted, #64748b);
+}
+
 .users-admin__switch-row {
   display: flex;
   align-items: center;
