@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 
 
 EducationStageCode = Literal["primary", "junior", "senior", "university"]
+GenderCode = Literal["male", "female"]
 
 
 class LoginBody(BaseModel):
@@ -18,10 +19,28 @@ class UserOut(BaseModel):
     full_name: str | None = None
     education_stage: str | None = None
     enrollment_year: int | None = None
+    gender: str | None = None
+    avatar_url: str
+    has_custom_avatar: bool = False
     is_admin: bool
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+    @classmethod
+    def from_user(cls, user) -> "UserOut":
+        return cls(
+            id=user.id,
+            username=user.username,
+            full_name=user.full_name,
+            education_stage=user.education_stage,
+            enrollment_year=user.enrollment_year,
+            gender=user.gender,
+            avatar_url=f"/api/auth/users/{user.id}/avatar",
+            has_custom_avatar=bool(user.avatar_path),
+            is_admin=user.is_admin,
+            created_at=user.created_at,
+        )
 
 
 class UserCreateBody(BaseModel):
@@ -30,6 +49,7 @@ class UserCreateBody(BaseModel):
     full_name: str = Field(..., min_length=1, max_length=64)
     education_stage: EducationStageCode
     enrollment_year: int = Field(..., ge=1980, le=2050)
+    gender: GenderCode | None = None
 
 
 class UserUpdateBody(BaseModel):
@@ -38,6 +58,8 @@ class UserUpdateBody(BaseModel):
     full_name: str | None = Field(None, min_length=1, max_length=64)
     education_stage: EducationStageCode | None = None
     enrollment_year: int | None = Field(None, ge=1980, le=2050)
+    gender: GenderCode | None = None
+    clear_avatar: bool | None = None
     is_admin: bool | None = None
 
 
@@ -49,6 +71,8 @@ class UserProfileUpdateBody(BaseModel):
     full_name: str | None = Field(None, min_length=1, max_length=64)
     education_stage: EducationStageCode | None = None
     enrollment_year: int | None = Field(None, ge=1980, le=2050)
+    gender: GenderCode | None = None
+    clear_avatar: bool | None = None
 
 
 class EducationStageOut(BaseModel):

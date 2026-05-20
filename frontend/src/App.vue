@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { NAvatar, NButton, NTooltip } from "naive-ui";
+import { NButton, NPopover, NTag } from "naive-ui";
 import NavIcon from "./components/NavIcon.vue";
+import UserAvatar from "./components/UserAvatar.vue";
 import { fetchAppVersion } from "./api/client";
 import { useAuthStore } from "./stores/auth";
 import { themeOverrides } from "./naive-theme";
@@ -50,6 +51,7 @@ type NavItem = {
 
 const settingsChildren = computed<NavChild[]>(() => {
   const children: NavChild[] = [
+    { label: "个人信息", key: "/settings/profile" },
     { label: "通用设置", key: "/settings/general" },
     { label: "AI 设置", key: "/settings/ai" },
   ];
@@ -87,10 +89,22 @@ const activeKey = computed(() => {
 
 const settingsExpanded = computed(() => route.path.startsWith("/settings"));
 
+const avatarRefresh = computed(
+  () => `${auth.me?.id ?? ""}-${auth.me?.has_custom_avatar ? 1 : 0}-${auth.me?.gender ?? ""}`,
+);
+
 const userInitial = computed(() => {
   const name = auth.me?.full_name || auth.me?.username || "?";
   return name.slice(0, 1).toUpperCase();
 });
+
+const userDisplayName = computed(() => auth.me?.full_name || auth.me?.username || "");
+const userLoginName = computed(() => auth.me?.username ?? "");
+
+function openProfile() {
+  drawerOpen.value = false;
+  router.push("/settings/profile");
+}
 
 function go(key: string) {
   router.push(key);
@@ -159,15 +173,101 @@ function logout() {
 
                 <div class="app-header__trailing">
                   <template v-if="!narrow && auth.isLoggedIn && auth.me">
-                    <NTooltip placement="bottom-end">
+                    <NPopover
+                      trigger="hover"
+                      placement="bottom-end"
+                      :show-arrow="true"
+                      :delay="80"
+                      :duration="160"
+                      raw
+                      content-class="app-user-popover-panel"
+                      :content-style="{
+                        padding: 0,
+                        background: 'transparent',
+                        border: 'none',
+                        boxShadow: 'none',
+                        borderRadius: 0,
+                        overflow: 'visible',
+                      }"
+                      :style="{ background: 'transparent', boxShadow: 'none', borderRadius: 0 }"
+                      :arrow-style="{ background: 'rgba(255, 255, 255, 0.98)' }"
+                    >
                       <template #trigger>
-                        <span class="app-user-chip">
-                          <NAvatar round :size="32" class="app-user-chip__avatar">{{ userInitial }}</NAvatar>
-                        </span>
+                        <button
+                          type="button"
+                          class="app-header__user-trigger"
+                          aria-label="打开用户菜单"
+                          aria-haspopup="menu"
+                        >
+                          <span class="app-header__welcome">你好，{{ userDisplayName }}</span>
+                          <span class="app-user-chip">
+                            <span class="app-user-chip__ring" aria-hidden="true" />
+                            <UserAvatar
+                              :user-id="auth.me.id"
+                              :gender="auth.me.gender"
+                              :has-custom-avatar="!!auth.me.has_custom_avatar"
+                              :size="36"
+                              :fallback-text="userInitial"
+                              :refresh-key="avatarRefresh"
+                            />
+                          </span>
+                        </button>
                       </template>
-                      {{ auth.me.full_name || auth.me.username }}
-                    </NTooltip>
-                    <NButton size="small" quaternary class="app-header__logout" @click="logout">退出</NButton>
+                      <div class="app-user-menu" role="menu">
+                        <div class="app-user-menu__header">
+                          <div class="app-user-menu__avatar-wrap">
+                            <UserAvatar
+                              :user-id="auth.me.id"
+                              :gender="auth.me.gender"
+                              :has-custom-avatar="!!auth.me.has_custom_avatar"
+                              :size="52"
+                              :fallback-text="userInitial"
+                              :refresh-key="avatarRefresh"
+                            />
+                          </div>
+                          <div class="app-user-menu__meta">
+                            <p class="app-user-menu__name">{{ userDisplayName }}</p>
+                            <p class="app-user-menu__login">@{{ userLoginName }}</p>
+                            <NTag
+                              v-if="auth.me.is_admin"
+                              size="small"
+                              round
+                              :bordered="false"
+                              class="app-user-menu__badge"
+                            >
+                              管理员
+                            </NTag>
+                          </div>
+                        </div>
+                        <div class="app-user-menu__divider" role="separator" />
+                        <div class="app-user-menu__actions">
+                          <button type="button" class="app-user-menu__item" role="menuitem" @click="openProfile">
+                            <span class="app-user-menu__icon app-user-menu__icon--profile" aria-hidden="true">
+                              <NavIcon name="settings" />
+                            </span>
+                            <span class="app-user-menu__item-text">
+                              <span class="app-user-menu__item-title">编辑用户信息</span>
+                              <span class="app-user-menu__item-desc">头像、姓名与账号资料</span>
+                            </span>
+                            <span class="app-user-menu__chev" aria-hidden="true">›</span>
+                          </button>
+                          <button
+                            type="button"
+                            class="app-user-menu__item app-user-menu__item--logout"
+                            role="menuitem"
+                            @click="logout"
+                          >
+                            <span class="app-user-menu__icon app-user-menu__icon--logout" aria-hidden="true">
+                              <NavIcon name="logout" />
+                            </span>
+                            <span class="app-user-menu__item-text">
+                              <span class="app-user-menu__item-title">退出登录</span>
+                              <span class="app-user-menu__item-desc">退出当前账号</span>
+                            </span>
+                          </button>
+                        </div>
+                      </div>
+                    </NPopover>
                   </template>
                   <NButton
                     v-if="narrow && auth.isLoggedIn"
@@ -206,12 +306,20 @@ function logout() {
                 <div class="app-nav-drawer__hero">
                   <div class="app-nav-drawer__hero-bg" aria-hidden="true" />
                   <div class="app-nav-drawer__profile">
-                    <div class="app-nav-drawer__avatar">{{ userInitial }}</div>
+                    <UserAvatar
+                      v-if="auth.me"
+                      :user-id="auth.me.id"
+                      :gender="auth.me.gender"
+                      :has-custom-avatar="!!auth.me.has_custom_avatar"
+                      :size="48"
+                      :fallback-text="userInitial"
+                      :refresh-key="avatarRefresh"
+                      class="app-nav-drawer__avatar-img"
+                    />
+                    <div v-else class="app-nav-drawer__avatar">{{ userInitial }}</div>
                     <div class="app-nav-drawer__profile-text">
                       <div class="app-nav-drawer__app-name">AI 错题本</div>
-                      <div v-if="auth.me" class="app-nav-drawer__user-name">
-                        {{ auth.me.full_name || auth.me.username }}
-                      </div>
+                      <div v-if="auth.me" class="app-nav-drawer__greeting">你好，{{ userDisplayName }}</div>
                     </div>
                   </div>
                 </div>
@@ -261,6 +369,9 @@ function logout() {
 
                 <div class="app-nav-drawer__footer">
                   <p v-if="appVersion" class="app-nav-drawer__version">版本 v{{ appVersion }}</p>
+                  <NButton v-if="auth.me" class="app-nav-drawer__profile-btn" block quaternary @click="openProfile">
+                    编辑用户信息
+                  </NButton>
                   <NButton class="app-nav-drawer__logout" block secondary strong @click="logout">
                     <template #icon>
                       <NavIcon name="logout" />

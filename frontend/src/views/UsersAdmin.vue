@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from "vue";
 import {
   NButton,
   NCard,
+  NFormItem,
   NInput,
   NInputNumber,
   NModal,
@@ -11,18 +12,27 @@ import {
   NSpace,
   NSpin,
   NSwitch,
+  NRadioButton,
+  NRadioGroup,
   NTag,
+  NUpload,
   useMessage,
+  type UploadFileInfo,
 } from "naive-ui";
+import AvatarCropDialog from "../components/AvatarCropDialog.vue";
+import UserAvatar from "../components/UserAvatar.vue";
+import { useAvatarUploadPicker } from "../composables/useAvatarUploadPicker";
 import {
   createUserAccount,
   deleteUserAccount,
   fetchEducationStages,
   fetchUserList,
   updateUserAccount,
+  uploadUserAvatar,
   type EducationStageItem,
   type MeUser,
 } from "../api/client";
+import { GENDER_OPTIONS, genderLabel, type GenderCode } from "../constants/gender";
 import { useAuthStore } from "../stores/auth";
 
 const message = useMessage();
@@ -39,6 +49,7 @@ const newPassword = ref("");
 const newFullName = ref("");
 const newEducationStage = ref<string | null>(null);
 const newEnrollmentYear = ref<number>(new Date().getFullYear());
+const newGender = ref<GenderCode | null>(null);
 
 const editUsername = ref("");
 const editPassword = ref("");
@@ -46,8 +57,18 @@ const editFullName = ref("");
 const editEducationStage = ref<string | null>(null);
 const editEnrollmentYear = ref<number | null>(null);
 const editIsAdmin = ref(false);
+const editGender = ref<GenderCode | null>(null);
+const avatarRefreshMap = ref<Record<string, number>>({});
 
 const stageOptions = computed(() => stages.value.map((s) => ({ label: s.name, value: s.code })));
+
+function avatarRefreshKey(userId: string) {
+  return avatarRefreshMap.value[userId] ?? 0;
+}
+
+function bumpAvatar(userId: string) {
+  avatarRefreshMap.value = { ...avatarRefreshMap.value, [userId]: (avatarRefreshMap.value[userId] ?? 0) + 1 };
+}
 
 function stageLabel(code: string | null | undefined): string {
   if (!code) return "—";
@@ -101,6 +122,7 @@ async function add() {
       full_name: newFullName.value.trim(),
       education_stage: newEducationStage.value,
       enrollment_year: newEnrollmentYear.value,
+      gender: newGender.value,
     });
     message.success("已创建用户");
     showAdd.value = false;
@@ -109,6 +131,7 @@ async function add() {
     newFullName.value = "";
     newEducationStage.value = null;
     newEnrollmentYear.value = new Date().getFullYear();
+    newGender.value = null;
     await load();
   } catch (e) {
     message.error((e as Error).message);
@@ -127,9 +150,34 @@ function openEditModal(user: MeUser) {
   editEducationStage.value = user.education_stage;
   editEnrollmentYear.value = user.enrollment_year;
   editIsAdmin.value = user.is_admin;
+  editGender.value = (user.gender as GenderCode | null) ?? null;
   editPassword.value = "";
   showEdit.value = true;
 }
+
+async function uploadEditUserAvatar(file: File) {
+  if (!editingUser.value) return;
+  const userId = editingUser.value.id;
+  try {
+    const updated = await uploadUserAvatar(userId, file);
+    const idx = rows.value.findIndex((r) => r.id === userId);
+    if (idx >= 0) rows.value[idx] = updated;
+    editingUser.value = updated;
+    bumpAvatar(userId);
+    if (userId === auth.me?.id) await auth.fetchMe();
+    message.success("头像已更新");
+  } catch (e) {
+    message.error((e as Error).message);
+  }
+}
+
+const {
+  cropOpen: editCropOpen,
+  cropFile: editCropFile,
+  onUploadChange: onEditAvatarPick,
+  onCropConfirm: onEditCropConfirm,
+  onCropOpenChange: onEditCropOpenChange,
+} = useAvatarUploadPicker(uploadEditUserAvatar);
 
 async function saveEdit() {
   if (!editingUser.value) return;
@@ -160,6 +208,7 @@ async function saveEdit() {
       full_name: editFullName.value.trim(),
       education_stage: editEducationStage.value,
       enrollment_year: editEnrollmentYear.value,
+      gender: editGender.value,
       is_admin: editIsAdmin.value,
     };
     if (editPassword.value) {
@@ -200,12 +249,26 @@ async function remove(user: MeUser) {
         <NSpin :show="loading">
           <div class="entity-card-list entity-card-list--auto-grid">
             <NCard v-for="u in rows" :key="u.id" class="entity-card mistake-row-card" size="small" embedded>
-              <div class="entity-card__head">
+              <div class="users-admin__card-top">
+                <UserAvatar
+                  :user-id="u.id"
+                  :gender="u.gender"
+                  :has-custom-avatar="!!u.has_custom_avatar"
+                  :size="44"
+                  :fallback-text="(u.full_name || u.username).slice(0, 1).toUpperCase()"
+                  :refresh-key="avatarRefreshKey(u.id)"
+                />
+                <div class="entity-card__head users-admin__card-head">
                 <span class="entity-card__title">{{ u.full_name || u.username }}</span>
                 <NTag v-if="u.is_admin" size="small" type="warning">管理员</NTag>
                 <NTag v-else size="small">用户</NTag>
+                </div>
               </div>
               <div class="entity-card__rows">
+                <div class="entity-card__row">
+                  <span class="entity-card__label">性别</span>
+                  <span class="entity-card__value">{{ genderLabel(u.gender) }}</span>
+                </div>
                 <div class="entity-card__row">
                   <span class="entity-card__label">登录名</span>
                   <span class="entity-card__value">{{ u.username }}</span>
@@ -256,6 +319,14 @@ async function remove(user: MeUser) {
           placeholder="入学年份"
           style="width: 100%"
         />
+        <NFormItem label="性别（可选）" :show-feedback="false" label-placement="top">
+          <NRadioGroup v-model:value="newGender" name="new-gender">
+            <NRadioButton :value="null">未设置</NRadioButton>
+            <NRadioButton v-for="opt in GENDER_OPTIONS" :key="opt.value" :value="opt.value">
+              {{ opt.label }}
+            </NRadioButton>
+          </NRadioGroup>
+        </NFormItem>
         <NInput
           v-model:value="newPassword"
           type="password"
@@ -271,6 +342,23 @@ async function remove(user: MeUser) {
 
     <NModal v-model:show="showEdit" preset="dialog" title="编辑用户" style="width: min(480px, 92vw)">
       <NSpace vertical style="width: 100%; margin-top: 12px" :size="12">
+        <div v-if="editingUser" class="users-admin__edit-avatar">
+          <UserAvatar
+            :user-id="editingUser.id"
+            :gender="editGender"
+            :has-custom-avatar="editingUser.has_custom_avatar"
+            :size="56"
+            :fallback-text="(editFullName || editUsername).slice(0, 1).toUpperCase()"
+            :refresh-key="avatarRefreshKey(editingUser.id)"
+          />
+          <NUpload
+            :show-file-list="false"
+            accept="image/jpeg,image/png,image/webp,image/gif,.jpg,.jpeg,.png,.webp,.gif"
+            @change="onEditAvatarPick"
+          >
+            <NButton size="small">上传头像</NButton>
+          </NUpload>
+        </div>
         <NInput v-model:value="editUsername" placeholder="登录用户名" />
         <NInput v-model:value="editFullName" placeholder="用户姓名" />
         <NSelect v-model:value="editEducationStage" :options="stageOptions" placeholder="教育阶段" />
@@ -281,6 +369,14 @@ async function remove(user: MeUser) {
           placeholder="入学年份"
           style="width: 100%"
         />
+        <NFormItem label="性别" :show-feedback="false" label-placement="top">
+          <NRadioGroup v-model:value="editGender" name="edit-gender">
+            <NRadioButton :value="null">未设置</NRadioButton>
+            <NRadioButton v-for="opt in GENDER_OPTIONS" :key="opt.value" :value="opt.value">
+              {{ opt.label }}
+            </NRadioButton>
+          </NRadioGroup>
+        </NFormItem>
         <NInput
           v-model:value="editPassword"
           type="password"
@@ -297,6 +393,13 @@ async function remove(user: MeUser) {
         </div>
       </NSpace>
     </NModal>
+
+    <AvatarCropDialog
+      :show="editCropOpen"
+      :file="editCropFile"
+      @update:show="onEditCropOpenChange"
+      @confirm="onEditCropConfirm"
+    />
   </NSpace>
 </template>
 
@@ -306,6 +409,25 @@ async function remove(user: MeUser) {
   font-size: 13px;
   line-height: 1.55;
   color: var(--app-text-muted, #64748b);
+}
+
+.users-admin__card-top {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.users-admin__card-head {
+  flex: 1;
+  min-width: 0;
+}
+
+.users-admin__edit-avatar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
 }
 
 .users-admin__switch-row {

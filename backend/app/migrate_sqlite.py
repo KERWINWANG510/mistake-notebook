@@ -75,6 +75,10 @@ def apply_sqlite_migrations(sync_conn) -> None:
             sync_conn.execute(text("ALTER TABLE users ADD COLUMN education_stage VARCHAR(32)"))
         if "enrollment_year" not in uc:
             sync_conn.execute(text("ALTER TABLE users ADD COLUMN enrollment_year INTEGER"))
+        if "gender" not in uc:
+            sync_conn.execute(text("ALTER TABLE users ADD COLUMN gender VARCHAR(16)"))
+        if "avatar_path" not in uc:
+            sync_conn.execute(text("ALTER TABLE users ADD COLUMN avatar_path VARCHAR(256)"))
 
 
 def _tables(sync_conn) -> set[str]:

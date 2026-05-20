@@ -25,6 +25,12 @@ class User(Base):
         String(32), nullable=True, comment="教育阶段：primary/junior/senior/university"
     )
     enrollment_year: Mapped[int | None] = mapped_column(Integer, nullable=True, comment="入学年份")
+    gender: Mapped[str | None] = mapped_column(
+        String(16), nullable=True, comment="性别：male 男 / female 女，未设置时默认头像为男"
+    )
+    avatar_path: Mapped[str | None] = mapped_column(
+        String(256), nullable=True, comment="自定义头像相对上传目录路径，空则按性别使用内置默认图"
+    )
     password_hash: Mapped[str] = mapped_column(String(128), nullable=False, comment="bcrypt 密码哈希")
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, comment="是否管理员")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)

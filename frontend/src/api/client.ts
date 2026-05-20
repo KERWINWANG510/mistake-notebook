@@ -6,6 +6,9 @@ export type MeUser = {
   full_name: string | null;
   education_stage: string | null;
   enrollment_year: number | null;
+  gender: "male" | "female" | null;
+  avatar_url: string;
+  has_custom_avatar: boolean;
   is_admin: boolean;
   created_at?: string;
 };
@@ -696,12 +699,44 @@ export async function fetchEducationStages() {
   return data;
 }
 
+export async function fetchUserAvatarObjectUrl(userId: string): Promise<string> {
+  const { data, headers } = await http.get<Blob>(`/api/auth/users/${userId}/avatar`, {
+    responseType: "blob",
+  });
+  const contentType = (headers["content-type"] as string | undefined) ?? "";
+  if (!(data instanceof Blob) || data.size === 0 || !contentType.includes("image")) {
+    throw new Error("头像数据无效");
+  }
+  return URL.createObjectURL(data);
+}
+
+export async function uploadMyAvatar(image: File) {
+  const fd = new FormData();
+  fd.append("image", image);
+  const { data } = await http.post<MeUser>("/api/auth/me/avatar", fd);
+  return data;
+}
+
+export async function uploadUserAvatar(userId: string, image: File) {
+  const fd = new FormData();
+  fd.append("image", image);
+  const { data } = await http.post<MeUser>(`/api/auth/users/${userId}/avatar`, fd);
+  return data;
+}
+
+export async function clearMyAvatar() {
+  const { data } = await http.delete<MeUser>("/api/auth/me/avatar");
+  return data;
+}
+
 export async function updateMyProfile(payload: {
   username?: string;
   password?: string;
   full_name?: string;
   education_stage?: string;
   enrollment_year?: number;
+  gender?: "male" | "female" | null;
+  clear_avatar?: boolean;
 }) {
   const { data } = await http.patch<MeUser>("/api/auth/me", payload);
   return data;
@@ -718,6 +753,7 @@ export async function createUserAccount(payload: {
   full_name: string;
   education_stage: string;
   enrollment_year: number;
+  gender?: "male" | "female" | null;
 }) {
   const { data } = await http.post<MeUser>("/api/auth/users", payload);
   return data;
@@ -731,6 +767,8 @@ export async function updateUserAccount(
     full_name?: string;
     education_stage?: string;
     enrollment_year?: number;
+    gender?: "male" | "female" | null;
+    clear_avatar?: boolean;
     is_admin?: boolean;
   },
 ) {

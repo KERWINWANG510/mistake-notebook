@@ -9,6 +9,7 @@ const auth = useAuthStore();
 
 const subItems = computed(() => {
   const items = [
+    { label: "个人信息", key: "/settings/profile" },
     { label: "通用设置", key: "/settings/general" },
     { label: "AI 设置", key: "/settings/ai" },
   ];
@@ -23,7 +24,8 @@ const activeSubKey = computed(() => {
   if (p.startsWith("/settings/users")) return "/settings/users";
   if (p.startsWith("/settings/ai")) return "/settings/ai";
   if (p.startsWith("/settings/general")) return "/settings/general";
-  return "/settings/general";
+  if (p.startsWith("/settings/profile")) return "/settings/profile";
+  return "/settings/profile";
 });
 
 function go(key: string) {
