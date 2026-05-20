@@ -15,8 +15,16 @@ from app.database import get_db
 from app.models import GradeLevel, GradeSubject, Mistake, Subject, User
 from app.error_reasons import ERROR_REASON_OPTIONS, error_reason_label, parse_error_reason
 from app.knowledge_tags import normalize_knowledge_tags as _normalize_tags
+from app.mistake_sources import MISTAKE_SOURCE_OPTIONS, mistake_source_label, parse_mistake_source
 from app.routers.deps import get_current_user
-from app.schemas import ErrorReasonOptionOut, KnowledgeTagCount, MistakeOut, MistakeUpdate, SubjectMistakeSummary
+from app.schemas import (
+    ErrorReasonOptionOut,
+    KnowledgeTagCount,
+    MistakeOut,
+    MistakeSourceOptionOut,
+    MistakeUpdate,
+    SubjectMistakeSummary,
+)
 
 router = APIRouter(prefix="/api/mistakes", tags=["mistakes"])
 
@@ -34,6 +42,8 @@ def _mistake_out(m: Mistake) -> MistakeOut:
         knowledge_tags=list(m.knowledge_tags or []),
         error_reason=m.error_reason,
         error_reason_label=error_reason_label(m.error_reason),
+        mistake_source=m.mistake_source,
+        mistake_source_label=mistake_source_label(m.mistake_source),
         created_at=m.created_at,
         updated_at=m.updated_at,
         subject_name=m.subject.name if m.subject else None,
@@ -53,6 +63,12 @@ def _require_owner(m: Mistake | None, user: User) -> Mistake:
 async def list_error_reasons() -> list[ErrorReasonOptionOut]:
     """错因下拉选项（稳定 code + 中文标签）。"""
     return [ErrorReasonOptionOut(**o) for o in ERROR_REASON_OPTIONS]
+
+
+@router.get("/mistake-sources", response_model=list[MistakeSourceOptionOut])
+async def list_mistake_sources() -> list[MistakeSourceOptionOut]:
+    """错题来源下拉选项。"""
+    return [MistakeSourceOptionOut(**o) for o in MISTAKE_SOURCE_OPTIONS]
 
 
 @router.get("", response_model=list[MistakeOut])
@@ -342,10 +358,15 @@ async def create_mistake(
     answer: str = Form(""),
     knowledge_tags: str = Form("[]"),
     error_reason: str = Form(...),
+    mistake_source: str = Form(...),
     image: UploadFile | None = File(None),
 ) -> MistakeOut:
     try:
         reason_code = parse_error_reason(error_reason)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    try:
+        source_code = parse_mistake_source(mistake_source)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
@@ -388,6 +409,7 @@ async def create_mistake(
         image_path=image_rel,
         knowledge_tags=tags,
         error_reason=reason_code,
+        mistake_source=source_code,
     )
     db.add(row)
     await db.commit()
@@ -430,6 +452,11 @@ async def update_mistake(
     if body.error_reason is not None:
         try:
             m.error_reason = parse_error_reason(body.error_reason)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+    if body.mistake_source is not None:
+        try:
+            m.mistake_source = parse_mistake_source(body.mistake_source)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
     await db.commit()

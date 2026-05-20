@@ -58,6 +58,8 @@ export type Mistake = {
   knowledge_tags: string[];
   error_reason?: string | null;
   error_reason_label?: string | null;
+  mistake_source?: string | null;
+  mistake_source_label?: string | null;
   created_at: string;
   updated_at: string;
   subject_name?: string | null;
@@ -90,6 +92,12 @@ export type MistakeStatsSubjectRow = {
   mistake_count: number;
 };
 
+export type MistakeStatsSourceRow = {
+  source_code: string;
+  source_label: string;
+  mistake_count: number;
+};
+
 export type MistakeStatsTagRow = {
   tag: string;
   mistake_count: number;
@@ -119,6 +127,7 @@ export type MistakeStatsOverview = {
   mastery_rate_percent: number;
   by_grade: MistakeStatsGradeRow[];
   by_subject: MistakeStatsSubjectRow[];
+  by_source: MistakeStatsSourceRow[];
   by_tag: MistakeStatsTagRow[];
 };
 
@@ -619,6 +628,7 @@ export async function createMistake(payload: {
   analysis: string;
   answer: string;
   error_reason: string;
+  mistake_source: string;
   knowledge_tags?: string[];
   image?: File | null;
 }) {
@@ -629,6 +639,7 @@ export async function createMistake(payload: {
   fd.append("analysis", payload.analysis);
   fd.append("answer", payload.answer);
   fd.append("error_reason", payload.error_reason);
+  fd.append("mistake_source", payload.mistake_source);
   fd.append("knowledge_tags", JSON.stringify(payload.knowledge_tags ?? []));
   if (payload.image) fd.append("image", payload.image);
   const { data } = await http.post<Mistake>("/api/mistakes", fd);
@@ -646,6 +657,7 @@ export async function updateMistake(
     is_mastered: boolean;
     knowledge_tags: string[];
     error_reason: string;
+    mistake_source: string;
   }>,
 ) {
   const { data } = await http.patch<Mistake>(`/api/mistakes/${id}`, payload);

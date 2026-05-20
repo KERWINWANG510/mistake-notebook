@@ -119,7 +119,10 @@ class Mistake(Base):
         JSON, default=lambda: [], nullable=False, comment="知识点标签 JSON 数组"
     )
     error_reason: Mapped[str | None] = mapped_column(
-        String(32), nullable=True, comment="错因 code：reading/concept/formula 等，录入时必填"
+        String(32), nullable=True, comment="错因 code：reading/concept 等，录入时必填"
+    )
+    mistake_source: Mapped[str | None] = mapped_column(
+        String(32), nullable=True, comment="错题来源 code：homework/monthly_exam/real_exam，录入时必填"
     )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(

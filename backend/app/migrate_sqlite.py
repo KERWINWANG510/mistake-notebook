@@ -23,6 +23,8 @@ def apply_sqlite_migrations(sync_conn) -> None:
             )
         if "error_reason" not in c:
             sync_conn.execute(text("ALTER TABLE mistakes ADD COLUMN error_reason VARCHAR(32)"))
+        if "mistake_source" not in c:
+            sync_conn.execute(text("ALTER TABLE mistakes ADD COLUMN mistake_source VARCHAR(32)"))
         # 错因选项合并：7 项 → 4 项（可重复执行）
         sync_conn.execute(
             text("UPDATE mistakes SET error_reason = 'method' WHERE error_reason = 'formula'")

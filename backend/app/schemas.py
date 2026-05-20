@@ -113,6 +113,11 @@ class ErrorReasonOptionOut(BaseModel):
     label: str
 
 
+class MistakeSourceOptionOut(BaseModel):
+    code: str
+    label: str
+
+
 class MistakeOut(BaseModel):
     id: str
     subject_id: str
@@ -125,6 +130,8 @@ class MistakeOut(BaseModel):
     knowledge_tags: list[str] = Field(default_factory=list)
     error_reason: str | None = None
     error_reason_label: str | None = None
+    mistake_source: str | None = None
+    mistake_source_label: str | None = None
     created_at: datetime
     updated_at: datetime
     subject_name: str | None = None
@@ -150,6 +157,7 @@ class MistakeUpdate(BaseModel):
     is_mastered: bool | None = None
     knowledge_tags: list[str] | None = None
     error_reason: str | None = None
+    mistake_source: str | None = None
 
 
 class KnowledgeTagCount(BaseModel):
@@ -167,6 +175,12 @@ class MistakeStatsGradeRow(BaseModel):
 class MistakeStatsSubjectRow(BaseModel):
     subject_id: str
     subject_name: str
+    mistake_count: int
+
+
+class MistakeStatsSourceRow(BaseModel):
+    source_code: str
+    source_label: str
     mistake_count: int
 
 
@@ -197,6 +211,7 @@ class MistakeStatsOverview(BaseModel):
     mastery_rate_percent: float = Field(description="掌握率（已掌握/累计×100；无错题时为 0）")
     by_grade: list[MistakeStatsGradeRow]
     by_subject: list[MistakeStatsSubjectRow]
+    by_source: list[MistakeStatsSourceRow]
     by_tag: list[MistakeStatsTagRow]
 
 

@@ -8,6 +8,7 @@ import type { Grade, Mistake, SubjectMistakeSummary } from "../api/client";
 import { deleteMistake, fetchGrades, fetchMistakes, fetchSubjectMistakeSummary } from "../api/client";
 import { useAuthStore } from "../stores/auth";
 import { errorReasonLabel } from "../constants/errorReasons";
+import { mistakeSourceLabel } from "../constants/mistakeSources";
 import {
   inferCurrentGradeLevel,
   resolveGradeByLevel,
@@ -487,6 +488,7 @@ function formatDate(iso: string) {
                 <NTag v-if="isAllGrades && m.grade_name" size="tiny" :bordered="false" type="default">
                   {{ m.grade_name }}
                 </NTag>
+                <span v-if="m.mistake_source" class="mistake-tile__source">{{ mistakeSourceLabel(m.mistake_source) }}</span>
                 <span v-if="m.error_reason" class="mistake-tile__reason">{{ errorReasonLabel(m.error_reason) }}</span>
                 <NTag
                   size="small"
@@ -919,6 +921,16 @@ function formatDate(iso: string) {
   border-radius: 999px;
   background: rgba(79, 70, 229, 0.08);
   color: #4f46e5;
+}
+
+.mistake-tile__source {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(59, 130, 246, 0.1);
+  color: #1d4ed8;
+  white-space: nowrap;
 }
 
 .mistake-tile__reason {

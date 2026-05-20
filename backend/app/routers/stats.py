@@ -8,10 +8,12 @@ from app.database import get_db
 from app.models import GradeLevel, Mistake, Subject, User
 from app.routers.deps import get_current_user
 from app.error_reasons import ERROR_REASON_OPTIONS, canonical_error_reason
+from app.mistake_sources import MISTAKE_SOURCE_OPTIONS
 from app.schemas import (
     MistakeStatsErrorReasonHeatmap,
     MistakeStatsGradeRow,
     MistakeStatsOverview,
+    MistakeStatsSourceRow,
     MistakeStatsSubjectRow,
     MistakeStatsTagRow,
 )
@@ -23,6 +25,28 @@ def _tag_stats_rows(
     tag_rows: list,
 ) -> list[MistakeStatsTagRow]:
     return [MistakeStatsTagRow(tag=row.tag, mistake_count=int(row.cnt)) for row in tag_rows]
+
+
+async def _query_source_stats(db: AsyncSession, user_id: str) -> list[MistakeStatsSourceRow]:
+    """按错题来源汇总（固定三项，无数据为 0）。"""
+    q = (
+        select(Mistake.mistake_source, func.count(Mistake.id).label("cnt"))
+        .where(
+            Mistake.user_id == user_id,
+            Mistake.mistake_source.is_not(None),
+            Mistake.mistake_source != "",
+        )
+        .group_by(Mistake.mistake_source)
+    )
+    counts = {row.mistake_source: int(row.cnt) for row in (await db.execute(q)).all()}
+    return [
+        MistakeStatsSourceRow(
+            source_code=o["code"],
+            source_label=o["label"],
+            mistake_count=counts.get(o["code"], 0),
+        )
+        for o in MISTAKE_SOURCE_OPTIONS
+    ]
 
 
 async def _query_tag_stats(
@@ -195,6 +219,7 @@ async def mistake_stats_overview(
         for row in subj_rows
     ]
 
+    by_source = await _query_source_stats(db, user.id)
     tag_rows = await _query_tag_stats(db, user.id)
     by_tag = tag_rows
 
@@ -204,5 +229,6 @@ async def mistake_stats_overview(
         mastery_rate_percent=mastery_rate_percent,
         by_grade=by_grade,
         by_subject=by_subject,
+        by_source=by_source,
         by_tag=by_tag,
     )

@@ -22,6 +22,7 @@ import type { Subject, Grade } from "../api/client";
 import { analyzeImageStream, createMistake, fetchGrades, fetchSubjects, solveFromStem } from "../api/client";
 import AnalysisField from "../components/AnalysisField.vue";
 import { ERROR_REASON_OPTIONS } from "../constants/errorReasons";
+import { MISTAKE_SOURCE_OPTIONS } from "../constants/mistakeSources";
 
 const router = useRouter();
 const message = useMessage();
@@ -92,8 +93,10 @@ const subjectId = ref<string | null>(null);
 const gradeLevelId = ref<string | null>(null);
 const knowledgeTags = ref<string[]>([]);
 const errorReason = ref<string | null>(null);
+const mistakeSource = ref<string | null>(null);
 
 const errorReasonOptions = ERROR_REASON_OPTIONS.map((o) => ({ label: o.label, value: o.value }));
+const mistakeSourceOptions = MISTAKE_SOURCE_OPTIONS.map((o) => ({ label: o.label, value: o.value }));
 
 const fileInputRef = ref<HTMLInputElement | null>(null);
 
@@ -217,6 +220,7 @@ function acceptImageFile(f: File) {
   gradeLevelId.value = null;
   knowledgeTags.value = [];
   errorReason.value = null;
+  mistakeSource.value = null;
   hasRecognized.value = false;
   originalFile.value = f;
   fileName.value = f.name;
@@ -754,6 +758,10 @@ async function save() {
     message.warning("请选择错因");
     return;
   }
+  if (!mistakeSource.value) {
+    message.warning("请选择错题来源");
+    return;
+  }
   if (!uploadFile.value) {
     message.warning("请先选择题目图片并完成框选确认");
     return;
@@ -768,6 +776,7 @@ async function save() {
       answer: answer.value,
       knowledge_tags: knowledgeTags.value,
       error_reason: errorReason.value,
+      mistake_source: mistakeSource.value,
       image: uploadFile.value,
     });
     message.success("已保存");
@@ -901,6 +910,15 @@ async function save() {
                       size="small"
                       :options="errorReasonOptions"
                       placeholder="请选择错因"
+                      clearable
+                    />
+                  </NFormItem>
+                  <NFormItem label="错题来源" :show-feedback="false" class="mistake-new__item" label-placement="top">
+                    <NSelect
+                      v-model:value="mistakeSource"
+                      size="small"
+                      :options="mistakeSourceOptions"
+                      placeholder="请选择来源"
                       clearable
                     />
                   </NFormItem>
@@ -1302,10 +1320,18 @@ async function save() {
 }
 
 .mistake-new__meta-grid {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 12px;
   width: 100%;
+}
+
+.mistake-new__meta-grid .mistake-new__item {
+  min-width: 0;
+}
+
+.mistake-new__meta-grid .mistake-new__item--full {
+  grid-column: 1 / -1;
 }
 
 .mistake-new__item--full {
@@ -1420,13 +1446,7 @@ async function save() {
   }
 
   .mistake-new__meta-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
     gap: 8px 10px;
-  }
-
-  .mistake-new__meta-grid .mistake-new__item--full {
-    grid-column: 1 / -1;
   }
 
   .mistake-new__item :deep(.n-form-item-label) {

@@ -33,6 +33,7 @@ const tagSubjectId = ref<string | null>(null);
 const wrapGrade = ref<HTMLDivElement | null>(null);
 const wrapSubject = ref<HTMLDivElement | null>(null);
 const wrapTag = ref<HTMLDivElement | null>(null);
+const wrapSource = ref<HTMLDivElement | null>(null);
 const wrapHeatmap = ref<HTMLDivElement | null>(null);
 
 const narrow = ref(false);
@@ -43,11 +44,12 @@ function updateNarrow() {
 let chartGrade: ReturnType<typeof echarts.init> | null = null;
 let chartSubject: ReturnType<typeof echarts.init> | null = null;
 let chartTag: ReturnType<typeof echarts.init> | null = null;
+let chartSource: ReturnType<typeof echarts.init> | null = null;
 let chartHeatmap: ReturnType<typeof echarts.init> | null = null;
 
-const CHART_GRADE_MIN = 340;
-const CHART_EMPTY_H = 300;
-const CHART_ROW_H = 44;
+/** 知识点标签图：单独展示前 N 个，其余合并为「其他」 */
+const TAG_CHART_TOP_N = 5;
+const TAG_CHART_OTHER_LABEL = "其他";
 
 /** 各柱使用不同渐变色（循环） */
 const BAR_PALETTE: [string, string][] = [
@@ -70,20 +72,6 @@ const gradeFilterOptions = computed(() =>
 const subjectFilterOptions = computed(() =>
   tagSubjects.value.map((s) => ({ label: s.name, value: s.id })),
 );
-
-function chartHeightGrade(count: number) {
-  return Math.min(440, Math.max(CHART_GRADE_MIN, 280 + count * 30));
-}
-
-function chartHeightHorizontal(names: string[], compact = false) {
-  const n = Math.max(names.length, 1);
-  const maxLen = names.length ? Math.max(...names.map((s) => s.length)) : 0;
-  const rowH = compact ? 38 : CHART_ROW_H;
-  const extra = maxLen > 14 ? Math.min(compact ? 100 : 140, (maxLen - 14) * (compact ? 5 : 7)) : 0;
-  const minH = compact ? 280 : 340;
-  const cap = compact ? 620 : 760;
-  return Math.min(cap, Math.max(minH, 96 + n * rowH + extra));
-}
 
 function barGradient(index: number, horizontal: boolean) {
   const [c0, c1] = BAR_PALETTE[index % BAR_PALETTE.length];
@@ -235,8 +223,10 @@ let roList: ResizeObserver[] = [];
 function disposeGradeSubject() {
   chartGrade?.dispose();
   chartSubject?.dispose();
+  chartSource?.dispose();
   chartGrade = null;
   chartSubject = null;
+  chartSource = null;
 }
 
 function disposeTag() {
@@ -258,16 +248,9 @@ function disposeAll() {
 function resizeAll() {
   chartGrade?.resize();
   chartSubject?.resize();
+  chartSource?.resize();
   chartTag?.resize();
   chartHeatmap?.resize();
-}
-
-function heatmapChartHeight(reasonCount: number, subjectCount: number, compact: boolean) {
-  const rows = Math.max(reasonCount, 1);
-  const cols = Math.max(subjectCount, 1);
-  const rowH = compact ? 32 : 36;
-  const base = compact ? 200 : 240;
-  return Math.min(compact ? 520 : 640, Math.max(compact ? 280 : 320, base + rows * rowH + (cols > 4 ? 24 : 0)));
 }
 
 function heatmapOption(data: MistakeStatsErrorReasonHeatmap, compact: boolean): EChartsOption {
@@ -354,7 +337,6 @@ async function renderHeatmapChart(data: MistakeStatsErrorReasonHeatmap | null) {
   if (!wrapHeatmap.value) return;
   const compact = narrow.value;
   const hasCells = !!data && data.cells.length > 0;
-  wrapHeatmap.value.style.height = `${hasCells && data ? heatmapChartHeight(data.reason_labels.length, data.subject_names.length, compact) : CHART_EMPTY_H}px`;
 
   chartHeatmap?.dispose();
   chartHeatmap = echarts.init(wrapHeatmap.value);
@@ -382,48 +364,78 @@ async function reloadHeatmapChart() {
   }
 }
 
+function sourceEmptySubtext() {
+  return "暂无已标注错题来源的错题，请在录入或编辑时选择来源";
+}
+
 function renderGradeSubjectCharts(data: MistakeStatsOverview) {
-  if (!wrapGrade.value || !wrapSubject.value) return;
-
   const compact = narrow.value;
-  const gNames = data.by_grade.map((r) => r.grade_name);
-  const sNames = data.by_subject.map((r) => r.subject_name);
 
-  wrapGrade.value.style.height = `${gNames.length ? chartHeightGrade(gNames.length) : CHART_EMPTY_H}px`;
-  wrapSubject.value.style.height = `${sNames.length ? chartHeightHorizontal(sNames, compact) : CHART_EMPTY_H}px`;
+  if (wrapGrade.value) {
+    const gNames = data.by_grade.map((r) => r.grade_name);
+    const gVals = data.by_grade.map((r) => r.mistake_count);
+    chartGrade?.dispose();
+    chartGrade = echarts.init(wrapGrade.value);
+    chartGrade.setOption(
+      gNames.length ? verticalBar(gNames, gVals, "错题数", compact) : emptyOption("当前账号在各年级暂无错题"),
+      true,
+    );
+    chartGrade.resize();
+  }
 
-  chartGrade?.dispose();
-  chartSubject?.dispose();
-  chartGrade = echarts.init(wrapGrade.value);
-  chartSubject = echarts.init(wrapSubject.value);
+  if (wrapSubject.value) {
+    const sNames = data.by_subject.map((r) => r.subject_name);
+    const sVals = data.by_subject.map((r) => r.mistake_count);
+    chartSubject?.dispose();
+    chartSubject = echarts.init(wrapSubject.value);
+    chartSubject.setOption(
+      sNames.length ? horizontalBar(sNames, sVals, "错题数", compact) : emptyOption("当前账号在各科目暂无错题"),
+      true,
+    );
+    chartSubject.resize();
+  }
 
-  const gVals = data.by_grade.map((r) => r.mistake_count);
-  chartGrade.setOption(
-    gNames.length ? verticalBar(gNames, gVals, "错题数", compact) : emptyOption("当前账号在各年级暂无错题"),
-    true,
-  );
-
-  const sVals = data.by_subject.map((r) => r.mistake_count);
-  chartSubject.setOption(
-    sNames.length ? horizontalBar(sNames, sVals, "错题数", compact) : emptyOption("当前账号在各科目暂无错题"),
-    true,
-  );
+  if (wrapSource.value) {
+    const srcNames = data.by_source.map((r) => r.source_label);
+    const srcVals = data.by_source.map((r) => r.mistake_count);
+    const hasSource = srcVals.some((v) => v > 0);
+    chartSource?.dispose();
+    chartSource = echarts.init(wrapSource.value);
+    chartSource.setOption(
+      hasSource ? verticalBar(srcNames, srcVals, "错题数", compact) : emptyOption(sourceEmptySubtext()),
+      true,
+    );
+    chartSource.resize();
+  }
 }
 
 function tagEmptySubtext() {
   if (tagGradeId.value && tagSubjectId.value) return "所选年级与科目下暂无知识点标签统计";
-  if (tagGradeId.value) return "所选年级下暂无知识点标签统计";
   if (tagSubjectId.value) return "所选科目下暂无知识点标签统计";
+  if (tagGradeId.value) return "所选年级下暂无知识点标签统计";
   return "当前账号暂无知识点标签统计";
+}
+
+function collapseTagRowsForChart(rows: MistakeStatsTagRow[]): MistakeStatsTagRow[] {
+  if (rows.length <= TAG_CHART_TOP_N) {
+    return [...rows].sort((a, b) => b.mistake_count - a.mistake_count || a.tag.localeCompare(b.tag, "zh"));
+  }
+  const sorted = [...rows].sort(
+    (a, b) => b.mistake_count - a.mistake_count || a.tag.localeCompare(b.tag, "zh"),
+  );
+  const top = sorted.slice(0, TAG_CHART_TOP_N);
+  const otherCount = sorted.slice(TAG_CHART_TOP_N).reduce((sum, r) => sum + r.mistake_count, 0);
+  if (otherCount <= 0) return top;
+  const merged = [...top, { tag: TAG_CHART_OTHER_LABEL, mistake_count: otherCount }];
+  return merged.sort((a, b) => b.mistake_count - a.mistake_count);
 }
 
 function renderTagChart(rows: MistakeStatsTagRow[]) {
   if (!wrapTag.value) return;
   const compact = narrow.value;
-  const tNames = rows.map((r) => r.tag);
-  const tVals = rows.map((r) => r.mistake_count);
-
-  wrapTag.value.style.height = `${tNames.length ? chartHeightHorizontal(tNames, compact) : CHART_EMPTY_H}px`;
+  const displayRows = collapseTagRowsForChart(rows);
+  const tNames = displayRows.map((r) => r.tag);
+  const tVals = displayRows.map((r) => r.mistake_count);
 
   chartTag?.dispose();
   chartTag = echarts.init(wrapTag.value);
@@ -502,7 +514,7 @@ onMounted(async () => {
     renderTagChart(data.by_tag);
     await reloadHeatmapChart();
     roList = [];
-    for (const r of [wrapGrade, wrapSubject, wrapTag, wrapHeatmap]) {
+    for (const r of [wrapGrade, wrapSubject, wrapSource, wrapTag, wrapHeatmap]) {
       if (!r.value) continue;
       const obs = new ResizeObserver(() => resizeAll());
       obs.observe(r.value);
@@ -530,7 +542,7 @@ onBeforeUnmount(() => {
     <header class="page-header statistics__header">
       <h1 class="page-header__title">错题统计</h1>
       <p class="page-header__desc statistics__header-desc">
-        按当前登录账号汇总全部错题；顶部为总体指标，下方按年级、科目、错因×科目热力图、知识点标签展示分布。知识点标签图可按年级、科目筛选。
+        按当前登录账号汇总全部错题；顶部为总体指标，下方按年级、科目、错题来源、错因×科目热力图、知识点标签展示分布。知识点标签图可按年级、科目筛选。
       </p>
       <p v-if="narrow" class="statistics__header-mobile-tip">总览指标 · 年级 / 科目 / 知识点分布</p>
     </header>
@@ -570,6 +582,14 @@ onBeforeUnmount(() => {
               </div>
             </template>
             <div ref="wrapSubject" class="statistics__chart" />
+          </NCard>
+          <NCard class="surface-card statistics__card statistics__panel" size="small" :bordered="false">
+            <template #header>
+              <div class="statistics__panel-head">
+                <span class="statistics__panel-title">按错题来源</span>
+              </div>
+            </template>
+            <div ref="wrapSource" class="statistics__chart" />
           </NCard>
           <NCard class="surface-card statistics__card statistics__panel" size="small" :bordered="false">
             <template #header>
@@ -697,7 +717,7 @@ onBeforeUnmount(() => {
 @media (min-width: 769px) {
   .statistics__grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    align-items: start;
+    align-items: stretch;
   }
 
   .statistics__tag-head {
@@ -764,10 +784,19 @@ onBeforeUnmount(() => {
   width: min(160px, 42vw);
 }
 
+.statistics__panel :deep(.n-spin-container),
+.statistics__panel :deep(.n-spin-content) {
+  width: 100%;
+}
+
+/* 各统计图统一绘图区高度（PC 380px，与移动端 300px 对应） */
 .statistics__chart {
   width: 100%;
-  min-height: 300px;
-  overflow: visible;
+  height: 380px;
+  min-height: 380px;
+  max-height: 380px;
+  box-sizing: border-box;
+  overflow: hidden;
 }
 
 @media (max-width: 768px) {
@@ -885,7 +914,9 @@ onBeforeUnmount(() => {
   }
 
   .statistics__chart {
-    min-height: 260px;
+    height: 300px;
+    min-height: 300px;
+    max-height: 300px;
   }
 }
 </style>
