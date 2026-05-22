@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { EChartsOption } from "echarts";
 import * as echarts from "echarts";
-import { NCard, NSelect, NSpin, NStatistic, useMessage } from "naive-ui";
+import { NSelect, NSpin, NStatistic, useMessage } from "naive-ui";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import type {
   Grade,
@@ -640,130 +640,142 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="statistics page-root">
-    <header class="page-header statistics__header">
-      <h1 class="page-header__title">错题统计</h1>
-      <p class="page-header__desc statistics__header-desc">
-        按当前登录账号汇总错题与今日复习打卡；含年级、科目、来源、错因热力图、知识点标签及近 14 日复习趋势。知识点标签图可按年级、科目筛选。
-      </p>
-      <p v-if="narrow" class="statistics__header-mobile-tip">错题总览 · 今日复习 · 年级 / 科目分布</p>
+    <header class="statistics-hero">
+      <div class="statistics-hero__text">
+        <h1 class="statistics-hero__title">错题统计</h1>
+        <p class="statistics-hero__desc">
+          汇总当前账号的错题掌握、复习打卡与多维分布；知识点标签支持按年级、科目筛选。
+        </p>
+      </div>
+      <div class="statistics-hero__chips" aria-label="统计模块">
+        <span class="statistics-hero__chip">错题总览</span>
+        <span class="statistics-hero__chip">今日复习</span>
+        <span class="statistics-hero__chip">分布图表</span>
+      </div>
     </header>
 
     <NSpin :show="loading">
-      <div v-if="overview" class="statistics__body">
-        <div class="statistics__kpis">
-          <article class="statistics__kpi statistics__kpi--total surface-card">
-            <NStatistic label="累计错题" tabular-nums :value="overview.total_mistake_count" />
-          </article>
-          <article class="statistics__kpi statistics__kpi--mastered surface-card">
-            <NStatistic label="已掌握" tabular-nums :value="overview.mastered_count" />
-          </article>
-          <article class="statistics__kpi statistics__kpi--accent surface-card">
-            <NStatistic
-              label="掌握率"
-              tabular-nums
-              :value="overview.mastery_rate_percent"
-              :precision="1"
-              suffix="%"
-            />
-          </article>
-        </div>
+      <div v-if="overview" class="statistics-layout">
+        <section class="statistics-section" aria-labelledby="stats-overview-heading">
+          <div class="statistics-section__head">
+            <h2 id="stats-overview-heading" class="statistics-section__title">错题总览</h2>
+          </div>
+          <div class="statistics-kpi-grid statistics-kpi-grid--3">
+            <article class="statistics-kpi statistics-kpi--total">
+              <NStatistic label="累计错题" tabular-nums :value="overview.total_mistake_count" />
+            </article>
+            <article class="statistics-kpi statistics-kpi--mastered">
+              <NStatistic label="已掌握" tabular-nums :value="overview.mastered_count" />
+            </article>
+            <article class="statistics-kpi statistics-kpi--accent">
+              <NStatistic
+                label="掌握率"
+                tabular-nums
+                :value="overview.mastery_rate_percent"
+                :precision="1"
+                suffix="%"
+              />
+            </article>
+          </div>
+        </section>
 
-        <template v-if="reviewStats">
-          <h2 class="statistics__section-title">今日复习</h2>
-          <div class="statistics__kpis statistics__kpis--review">
-            <article class="statistics__kpi statistics__kpi--review surface-card">
+        <section v-if="reviewStats" class="statistics-section" aria-labelledby="stats-review-heading">
+          <div class="statistics-section__head">
+            <h2 id="stats-review-heading" class="statistics-section__title">今日复习</h2>
+            <p class="statistics-section__hint">近 14 日趋势与打卡结果</p>
+          </div>
+          <div class="statistics-kpi-grid statistics-kpi-grid--4">
+            <article class="statistics-kpi statistics-kpi--review">
               <NStatistic label="连续打卡" tabular-nums :value="reviewStats.streak_days" suffix=" 天" />
             </article>
-            <article class="statistics__kpi statistics__kpi--review surface-card">
+            <article class="statistics-kpi statistics-kpi--review">
               <NStatistic label="今日进度" tabular-nums>
-                <span class="statistics__kpi-value">{{ reviewStats.today_completed }} / {{ reviewStats.daily_target }}</span>
+                <span class="statistics-kpi__value-inline">
+                  {{ reviewStats.today_completed }} / {{ reviewStats.daily_target }}
+                </span>
               </NStatistic>
             </article>
-            <article class="statistics__kpi statistics__kpi--review surface-card">
+            <article class="statistics-kpi statistics-kpi--review">
               <NStatistic label="待复习（今日到期）" tabular-nums :value="reviewStats.due_total" />
             </article>
-            <article class="statistics__kpi statistics__kpi--review surface-card">
+            <article class="statistics-kpi statistics-kpi--review">
               <NStatistic label="累计复习次数" tabular-nums :value="reviewStats.total_reviewed_all_time" />
             </article>
           </div>
-        </template>
+          <div class="statistics-chart-grid statistics-chart-grid--2">
+            <article class="statistics-panel">
+              <header class="statistics-panel__head">
+                <span class="statistics-panel__title">近 14 日复习题数</span>
+              </header>
+              <div class="statistics-panel__body">
+                <div ref="wrapReviewTrend" class="statistics-chart" />
+              </div>
+            </article>
+            <article class="statistics-panel">
+              <header class="statistics-panel__head">
+                <span class="statistics-panel__title">复习结果分布</span>
+              </header>
+              <div class="statistics-panel__body">
+                <div ref="wrapReviewResult" class="statistics-chart" />
+              </div>
+            </article>
+          </div>
+        </section>
 
-        <div class="statistics__grid">
-          <NCard
-            v-if="reviewStats"
-            class="surface-card statistics__card statistics__panel"
-            size="small"
-            :bordered="false"
-          >
-            <template #header>
-              <div class="statistics__panel-head">
-                <span class="statistics__panel-title">近 14 日复习题数</span>
+        <section class="statistics-section" aria-labelledby="stats-dist-heading">
+          <div class="statistics-section__head">
+            <h2 id="stats-dist-heading" class="statistics-section__title">错题分布</h2>
+            <p class="statistics-section__hint">年级、科目、来源、错因与知识点</p>
+          </div>
+          <div class="statistics-chart-grid statistics-chart-grid--2">
+            <article class="statistics-panel">
+              <header class="statistics-panel__head">
+                <span class="statistics-panel__title">按年级</span>
+              </header>
+              <div class="statistics-panel__body">
+                <div ref="wrapGrade" class="statistics-chart" />
               </div>
-            </template>
-            <div ref="wrapReviewTrend" class="statistics__chart" />
-          </NCard>
-          <NCard
-            v-if="reviewStats"
-            class="surface-card statistics__card statistics__panel"
-            size="small"
-            :bordered="false"
-          >
-            <template #header>
-              <div class="statistics__panel-head">
-                <span class="statistics__panel-title">复习结果分布</span>
+            </article>
+            <article class="statistics-panel">
+              <header class="statistics-panel__head">
+                <span class="statistics-panel__title">按科目</span>
+              </header>
+              <div class="statistics-panel__body">
+                <div ref="wrapSubject" class="statistics-chart" />
               </div>
-            </template>
-            <div ref="wrapReviewResult" class="statistics__chart" />
-          </NCard>
-          <NCard class="surface-card statistics__card statistics__panel" size="small" :bordered="false">
-            <template #header>
-              <div class="statistics__panel-head">
-                <span class="statistics__panel-title">按年级</span>
+            </article>
+            <article class="statistics-panel">
+              <header class="statistics-panel__head">
+                <span class="statistics-panel__title">按错题来源</span>
+              </header>
+              <div class="statistics-panel__body">
+                <div ref="wrapSource" class="statistics-chart" />
               </div>
-            </template>
-            <div ref="wrapGrade" class="statistics__chart" />
-          </NCard>
-          <NCard class="surface-card statistics__card statistics__panel" size="small" :bordered="false">
-            <template #header>
-              <div class="statistics__panel-head">
-                <span class="statistics__panel-title">按科目</span>
-              </div>
-            </template>
-            <div ref="wrapSubject" class="statistics__chart" />
-          </NCard>
-          <NCard class="surface-card statistics__card statistics__panel" size="small" :bordered="false">
-            <template #header>
-              <div class="statistics__panel-head">
-                <span class="statistics__panel-title">按错题来源</span>
-              </div>
-            </template>
-            <div ref="wrapSource" class="statistics__chart" />
-          </NCard>
-          <NCard class="surface-card statistics__card statistics__panel" size="small" :bordered="false">
-            <template #header>
-              <div class="statistics__panel-head statistics__panel-head--stack">
-                <span class="statistics__panel-title">错因 × 科目</span>
-                <span v-if="heatmapData" class="statistics__panel-hint">
+            </article>
+            <article class="statistics-panel">
+              <header class="statistics-panel__head statistics-panel__head--stack">
+                <span class="statistics-panel__title">错因 × 科目</span>
+                <span v-if="heatmapData" class="statistics-panel__hint">
                   已标注 {{ heatmapData.annotated_mistake_count }} / {{ heatmapData.total_mistake_count }} 道
                 </span>
+              </header>
+              <div class="statistics-panel__body">
+                <NSpin :show="heatmapLoading">
+                  <div ref="wrapHeatmap" class="statistics-chart" />
+                </NSpin>
               </div>
-            </template>
-            <NSpin :show="heatmapLoading">
-              <div ref="wrapHeatmap" class="statistics__chart" />
-            </NSpin>
-          </NCard>
-          <NCard class="surface-card statistics__card statistics__card--tag statistics__panel" size="small" :bordered="false">
-            <template #header>
-              <div class="statistics__tag-head">
-                <span class="statistics__panel-title">按知识点标签</span>
-                <div class="statistics__tag-filters">
+            </article>
+            <article class="statistics-panel statistics-panel--wide">
+              <header class="statistics-panel__head statistics-panel__head--tag">
+                <span class="statistics-panel__title">按知识点标签</span>
+                <div class="statistics-panel__filters">
                   <NSelect
                     v-model:value="tagGradeId"
                     size="small"
                     :options="gradeFilterOptions"
                     placeholder="全部年级"
                     clearable
-                    class="statistics__tag-select"
+                    class="statistics-panel__select"
                   />
                   <NSelect
                     v-model:value="tagSubjectId"
@@ -771,16 +783,18 @@ onBeforeUnmount(() => {
                     :options="subjectFilterOptions"
                     placeholder="全部科目"
                     clearable
-                    class="statistics__tag-select"
+                    class="statistics-panel__select"
                   />
                 </div>
+              </header>
+              <div class="statistics-panel__body">
+                <NSpin :show="tagLoading">
+                  <div ref="wrapTag" class="statistics-chart" />
+                </NSpin>
               </div>
-            </template>
-            <NSpin :show="tagLoading">
-              <div ref="wrapTag" class="statistics__chart" />
-            </NSpin>
-          </NCard>
-        </div>
+            </article>
+          </div>
+        </section>
       </div>
     </NSpin>
   </div>
@@ -789,320 +803,423 @@ onBeforeUnmount(() => {
 <style scoped>
 .statistics {
   width: 100%;
-  max-width: 100%;
   min-width: 0;
   box-sizing: border-box;
 }
 
-.statistics__header {
-  margin-bottom: 12px;
-}
-
-.statistics__header-mobile-tip {
-  display: none;
-}
-
-.statistics__body {
-  max-width: 1080px;
-  margin: 0 auto;
-  width: 100%;
-}
-
-.statistics__kpis {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-  gap: 16px;
+/* 页头 */
+.statistics-hero {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px 20px;
   margin-bottom: 20px;
+  padding: 18px 20px;
+  border-radius: 16px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.08) 0%, rgba(255, 255, 255, 0.98) 52%);
+  box-shadow: var(--app-shadow, 0 4px 24px rgba(15, 23, 42, 0.06));
 }
 
-.statistics__kpi {
-  padding: 14px 16px;
-  border-radius: 14px;
-  border: 1px solid rgba(226, 232, 240, 0.9);
-  background: #fff;
+.statistics-hero__title {
+  margin: 0;
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: #0f172a;
+  letter-spacing: -0.02em;
 }
 
-.statistics__kpi--total {
-  background: linear-gradient(145deg, #f5f7ff 0%, #ffffff 72%);
-  border-color: rgba(129, 140, 248, 0.22);
-}
-
-.statistics__kpi--mastered {
-  background: linear-gradient(145deg, #f8fafc 0%, #ffffff 72%);
-}
-
-.statistics__kpi--accent {
-  background: linear-gradient(145deg, #ecfdf5 0%, #ffffff 72%);
-  border-color: rgba(16, 185, 129, 0.22);
-}
-
-.statistics__kpi :deep(.n-statistic__label) {
+.statistics-hero__desc {
+  margin: 8px 0 0;
+  max-width: 52em;
   font-size: 13px;
+  line-height: 1.55;
   color: var(--app-text-muted, #64748b);
 }
 
-.statistics__kpi :deep(.n-statistic-value__content) {
-  font-size: clamp(22px, 4.5vw, 28px);
-  font-weight: 600;
-  color: var(--app-text, #0f172a);
+.statistics-hero__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-self: center;
 }
 
-.statistics__kpi--accent :deep(.n-statistic-value__content) {
+.statistics-hero__chip {
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #4338ca;
+  background: rgba(99, 102, 241, 0.1);
+  border: 1px solid rgba(99, 102, 241, 0.18);
+}
+
+.statistics-layout {
+  max-width: 1120px;
+  margin: 0 auto;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+/* 分区 */
+.statistics-section {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.statistics-section__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px 12px;
+}
+
+.statistics-section__title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #0f172a;
+  letter-spacing: -0.01em;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.statistics-section__title::before {
+  content: "";
+  width: 4px;
+  height: 1.1em;
+  border-radius: 4px;
+  background: linear-gradient(180deg, #818cf8, #6366f1);
+  flex-shrink: 0;
+}
+
+.statistics-section__hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--app-text-subtle, #94a3b8);
+}
+
+/* KPI */
+.statistics-kpi-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.statistics-kpi-grid--3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.statistics-kpi-grid--4 {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.statistics-kpi {
+  position: relative;
+  padding: 16px 18px;
+  border-radius: 14px;
+  border: 1px solid rgba(226, 232, 240, 0.92);
+  background: #fff;
+  box-shadow: 0 2px 12px rgba(15, 23, 42, 0.04);
+  overflow: hidden;
+  transition:
+    box-shadow 0.2s ease,
+    transform 0.2s ease;
+}
+
+.statistics-kpi:hover {
+  box-shadow: 0 8px 24px rgba(99, 102, 241, 0.1);
+  transform: translateY(-1px);
+}
+
+.statistics-kpi::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 72px;
+  height: 72px;
+  border-radius: 0 0 0 72px;
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+.statistics-kpi--total {
+  background: linear-gradient(145deg, #f5f7ff 0%, #fff 70%);
+  border-color: rgba(129, 140, 248, 0.25);
+}
+
+.statistics-kpi--total::after {
+  background: radial-gradient(circle at 100% 0%, #818cf8 0%, transparent 70%);
+}
+
+.statistics-kpi--mastered {
+  background: linear-gradient(145deg, #f8fafc 0%, #fff 70%);
+}
+
+.statistics-kpi--mastered::after {
+  background: radial-gradient(circle at 100% 0%, #94a3b8 0%, transparent 70%);
+}
+
+.statistics-kpi--accent {
+  background: linear-gradient(145deg, #ecfdf5 0%, #fff 70%);
+  border-color: rgba(16, 185, 129, 0.22);
+}
+
+.statistics-kpi--accent::after {
+  background: radial-gradient(circle at 100% 0%, #34d399 0%, transparent 70%);
+}
+
+.statistics-kpi--review {
+  background: linear-gradient(145deg, #faf5ff 0%, #fff 72%);
+  border-color: rgba(139, 92, 246, 0.2);
+}
+
+.statistics-kpi--review::after {
+  background: radial-gradient(circle at 100% 0%, #a78bfa 0%, transparent 70%);
+}
+
+.statistics-kpi :deep(.n-statistic__label) {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--app-text-muted, #64748b);
+}
+
+.statistics-kpi :deep(.n-statistic-value__content) {
+  font-size: clamp(1.35rem, 4vw, 1.75rem);
+  font-weight: 700;
+  color: #0f172a;
+  letter-spacing: -0.02em;
+}
+
+.statistics-kpi--accent :deep(.n-statistic-value__content) {
   color: #059669;
 }
 
-.statistics__section-title {
-  margin: 24px 0 12px;
-  font-size: 1.05rem;
-  font-weight: 700;
-  color: var(--app-text, #0f172a);
-  letter-spacing: 0.02em;
-}
-
-.statistics__kpis--review {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  margin-bottom: 20px;
-}
-
-.statistics__kpi--review :deep(.n-statistic-value__content) {
+.statistics-kpi--review :deep(.n-statistic-value__content) {
   color: #4f46e5;
 }
 
-.statistics__kpi-value {
-  font-size: 1.5rem;
-  font-weight: 600;
+.statistics-kpi__value-inline {
+  font-size: clamp(1.2rem, 3.5vw, 1.5rem);
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
   color: #4f46e5;
   line-height: 1.2;
 }
 
-.statistics__grid {
+/* 图表区 */
+.statistics-chart-grid {
   display: grid;
-  gap: 20px;
+  gap: 16px;
   grid-template-columns: 1fr;
-  width: 100%;
 }
 
-.statistics__grid > .statistics__card {
-  min-width: 0;
+.statistics-chart-grid--2 {
+  grid-template-columns: 1fr;
 }
 
 @media (min-width: 769px) {
-  .statistics__grid {
+  .statistics-chart-grid--2 {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    align-items: stretch;
   }
 
-  .statistics__tag-head {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .statistics__tag-filters {
-    justify-content: flex-start;
+  .statistics-panel--wide {
+    grid-column: 1 / -1;
   }
 }
 
-.statistics__panel-head {
+.statistics-panel {
+  min-width: 0;
+  border-radius: 16px;
+  border: 1px solid rgba(226, 232, 240, 0.92);
+  background: #fff;
+  box-shadow: 0 2px 14px rgba(15, 23, 42, 0.05);
+  overflow: hidden;
+}
+
+.statistics-panel__head {
   display: flex;
   align-items: center;
   gap: 8px;
+  padding: 14px 16px 10px;
+  border-bottom: 1px solid rgba(241, 245, 249, 0.95);
+  background: linear-gradient(180deg, #fafbff 0%, #fff 100%);
 }
 
-.statistics__panel-head--stack {
+.statistics-panel__head--stack {
   flex-direction: column;
   align-items: flex-start;
   gap: 4px;
 }
 
-.statistics__panel-hint {
-  font-size: 12px;
-  font-weight: 400;
-  color: var(--app-text-muted);
-}
-
-.statistics__panel-title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--app-text, #0f172a);
-}
-
-.statistics__card :deep(.n-card-header) {
-  padding-bottom: 6px;
-}
-
-.statistics__card :deep(.n-card__content) {
-  overflow: visible;
-}
-
-.statistics__tag-head {
-  display: flex;
+.statistics-panel__head--tag {
   flex-wrap: wrap;
-  align-items: center;
   justify-content: space-between;
   gap: 10px 12px;
-  width: 100%;
 }
 
-.statistics__tag-filters {
+.statistics-panel__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #1e293b;
+  letter-spacing: -0.01em;
+}
+
+.statistics-panel__title::before {
+  content: "";
+  width: 3px;
+  height: 14px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #a5b4fc, #6366f1);
+  flex-shrink: 0;
+}
+
+.statistics-panel__hint {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--app-text-muted, #64748b);
+  padding-left: 11px;
+}
+
+.statistics-panel__filters {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
   justify-content: flex-end;
-  flex: 1 1 auto;
 }
 
-.statistics__tag-select {
+.statistics-panel__select {
   min-width: 120px;
-  width: min(160px, 42vw);
+  width: min(168px, 42vw);
 }
 
-.statistics__panel :deep(.n-spin-container),
-.statistics__panel :deep(.n-spin-content) {
+.statistics-panel__body {
+  padding: 8px 12px 14px;
+}
+
+.statistics-panel__body :deep(.n-spin-container),
+.statistics-panel__body :deep(.n-spin-content) {
   width: 100%;
 }
 
-/* 各统计图统一绘图区高度（PC 380px，与移动端 300px 对应） */
-.statistics__chart {
+.statistics-chart {
   width: 100%;
-  height: 380px;
-  min-height: 380px;
-  max-height: 380px;
+  height: 360px;
+  min-height: 360px;
+  max-height: 360px;
   box-sizing: border-box;
   overflow: hidden;
 }
 
 @media (max-width: 768px) {
-  .statistics__header {
-    margin-bottom: 8px;
+  .statistics-hero {
+    padding: 14px 16px;
+    margin-bottom: 14px;
   }
 
-  .statistics__header .page-header__title {
-    font-size: 1.08rem;
-    margin-bottom: 2px;
+  .statistics-hero__title {
+    font-size: 1.12rem;
   }
 
-  .statistics__header-desc {
-    display: none;
-  }
-
-  .statistics__header-mobile-tip {
-    display: block;
-    margin: 0;
+  .statistics-hero__desc {
     font-size: 12px;
-    line-height: 1.4;
-    color: var(--app-text-muted, #64748b);
+    margin-top: 6px;
   }
 
-  .statistics__kpis--review {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .statistics-hero__chips {
+    width: 100%;
   }
 
-  .statistics__section-title {
-    margin: 16px 0 8px;
+  .statistics-layout {
+    gap: 20px;
+  }
+
+  .statistics-section__title {
     font-size: 0.95rem;
   }
 
-  .statistics__kpi-value {
-    font-size: 1.2rem;
-  }
-
-  .statistics__kpis {
+  .statistics-kpi-grid--3 {
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 8px;
-    margin-bottom: 12px;
   }
 
-  .statistics__kpi {
+  .statistics-kpi-grid--4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .statistics-kpi {
     padding: 10px 8px;
-    border-radius: 12px;
     text-align: center;
+    border-radius: 12px;
   }
 
-  .statistics__kpi :deep(.n-statistic) {
+  .statistics-kpi:hover {
+    transform: none;
+  }
+
+  .statistics-kpi::after {
+    display: none;
+  }
+
+  .statistics-kpi :deep(.n-statistic) {
     align-items: center;
   }
 
-  .statistics__kpi :deep(.n-statistic__label) {
+  .statistics-kpi :deep(.n-statistic__label) {
     font-size: 11px;
     line-height: 1.3;
   }
 
-  .statistics__kpi :deep(.n-statistic-value__content) {
-    font-size: 1.35rem;
-    line-height: 1.2;
+  .statistics-kpi :deep(.n-statistic-value__content) {
+    font-size: 1.25rem;
   }
 
-  .statistics__grid {
+  .statistics-kpi__value-inline {
+    font-size: 1.15rem;
+  }
+
+  .statistics-chart-grid {
     gap: 10px;
   }
 
-  .statistics__panel {
-    border-radius: 14px;
-    border: 1px solid rgba(226, 232, 240, 0.92);
-    box-shadow: 0 2px 10px rgba(15, 23, 42, 0.04);
-    background: #fff;
+  .statistics-panel__head {
+    padding: 10px 12px 8px;
   }
 
-  .statistics__panel :deep(.n-card-header) {
-    padding: 10px 12px 4px;
-  }
-
-  .statistics__panel :deep(.n-card__content) {
-    padding: 4px 8px 10px !important;
-  }
-
-  .statistics__panel-head {
-    gap: 7px;
-  }
-
-  .statistics__panel-title {
-    display: flex;
-    align-items: center;
-    gap: 7px;
-    font-size: 12px;
-    font-weight: 700;
-    color: #4338ca;
-    letter-spacing: 0.03em;
-  }
-
-  .statistics__panel-title::before {
-    content: "";
-    width: 3px;
-    height: 13px;
-    border-radius: 999px;
-    background: linear-gradient(180deg, #a5b4fc, #6366f1);
-    flex-shrink: 0;
-  }
-
-  .statistics__tag-head {
+  .statistics-panel__head--tag {
     flex-direction: column;
     align-items: stretch;
-    gap: 8px;
   }
 
-  .statistics__tag-filters {
+  .statistics-panel__filters {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 8px;
     width: 100%;
   }
 
-  .statistics__tag-select {
+  .statistics-panel__select {
     width: 100% !important;
     min-width: 0;
   }
 
-  .statistics__tag-select :deep(.n-base-selection-label) {
-    overflow: visible;
-    text-overflow: clip;
-    white-space: nowrap;
+  .statistics-panel__body {
+    padding: 4px 8px 10px;
   }
 
-  .statistics__chart {
-    height: 300px;
-    min-height: 300px;
-    max-height: 300px;
+  .statistics-chart {
+    height: 280px;
+    min-height: 280px;
+    max-height: 280px;
   }
 }
 </style>
