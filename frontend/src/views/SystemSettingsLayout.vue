@@ -42,7 +42,7 @@ function go(key: string) {
       </p>
     </header>
 
-    <nav class="system-settings__subnav" aria-label="系统设置子菜单">
+    <nav class="system-settings__subnav system-settings__subnav--desktop" aria-label="系统设置子菜单">
       <button
         v-for="item in subItems"
         :key="item.key"
@@ -124,8 +124,12 @@ function go(key: string) {
 }
 
 @media (max-width: 768px) {
-  .system-settings__subnav-btn {
-    min-height: 40px;
+  .system-settings__subnav--desktop {
+    display: none;
+  }
+
+  .system-settings__header {
+    margin-bottom: 8px;
   }
 }
 </style>

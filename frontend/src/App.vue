@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { NButton, NPopover, NTag } from "naive-ui";
 import NavIcon from "./components/NavIcon.vue";
@@ -88,6 +88,27 @@ const activeKey = computed(() => {
 });
 
 const settingsExpanded = computed(() => route.path.startsWith("/settings"));
+const settingsDrawerOpen = ref(false);
+
+watch(
+  () => route.path,
+  (path) => {
+    if (path.startsWith("/settings")) settingsDrawerOpen.value = true;
+  },
+  { immediate: true },
+);
+
+function toggleSettingsDrawer() {
+  settingsDrawerOpen.value = !settingsDrawerOpen.value;
+}
+
+function onNavParentClick(item: NavItem) {
+  if (item.children?.length && narrow.value) {
+    toggleSettingsDrawer();
+    return;
+  }
+  go(item.key);
+}
 
 const avatarRefresh = computed(
   () => `${auth.me?.id ?? ""}-${auth.me?.has_custom_avatar ? 1 : 0}-${auth.me?.gender ?? ""}`,
@@ -306,16 +327,23 @@ function logout() {
                 <div class="app-nav-drawer__hero">
                   <div class="app-nav-drawer__hero-bg" aria-hidden="true" />
                   <div class="app-nav-drawer__profile">
-                    <UserAvatar
+                    <button
                       v-if="auth.me"
-                      :user-id="auth.me.id"
-                      :gender="auth.me.gender"
-                      :has-custom-avatar="!!auth.me.has_custom_avatar"
-                      :size="48"
-                      :fallback-text="userInitial"
-                      :refresh-key="avatarRefresh"
-                      class="app-nav-drawer__avatar-img"
-                    />
+                      type="button"
+                      class="app-nav-drawer__avatar-btn"
+                      aria-label="编辑用户信息"
+                      @click="openProfile"
+                    >
+                      <UserAvatar
+                        :user-id="auth.me.id"
+                        :gender="auth.me.gender"
+                        :has-custom-avatar="!!auth.me.has_custom_avatar"
+                        :size="48"
+                        :fallback-text="userInitial"
+                        :refresh-key="avatarRefresh"
+                        class="app-nav-drawer__avatar-img"
+                      />
+                    </button>
                     <div v-else class="app-nav-drawer__avatar">{{ userInitial }}</div>
                     <div class="app-nav-drawer__profile-text">
                       <div class="app-nav-drawer__app-name">AI 错题本</div>
@@ -343,35 +371,46 @@ function logout() {
                       <button
                         type="button"
                         class="app-nav-drawer__item"
-                        :class="{ 'app-nav-drawer__item--open': settingsExpanded }"
-                        @click="go(item.children![0].key)"
+                        :class="{ 'app-nav-drawer__item--open': settingsDrawerOpen || settingsExpanded }"
+                        :aria-expanded="settingsDrawerOpen"
+                        @click="onNavParentClick(item)"
                       >
                         <span class="app-nav-drawer__item-icon">
                           <NavIcon :name="item.icon" />
                         </span>
                         <span class="app-nav-drawer__item-label">{{ item.label }}</span>
-                        <span class="app-nav-drawer__item-arrow" aria-hidden="true">›</span>
+                        <span
+                          class="app-nav-drawer__item-arrow app-nav-drawer__item-arrow--expand"
+                          :class="{ 'app-nav-drawer__item-arrow--expanded': settingsDrawerOpen }"
+                          aria-hidden="true"
+                        >
+                          ›
+                        </span>
                       </button>
-                      <button
-                        v-for="child in item.children"
-                        :key="child.key"
-                        type="button"
-                        class="app-nav-drawer__item app-nav-drawer__item--child"
-                        :class="{ 'app-nav-drawer__item--active': navChildActive(child) }"
-                        @click="go(child.key)"
+                      <div
+                        v-show="settingsDrawerOpen"
+                        class="app-nav-drawer__sub"
+                        role="group"
+                        :aria-label="`${item.label}子菜单`"
                       >
-                        <span class="app-nav-drawer__item-label">{{ child.label }}</span>
-                        <span class="app-nav-drawer__item-arrow" aria-hidden="true">›</span>
-                      </button>
+                        <button
+                          v-for="child in item.children"
+                          :key="child.key"
+                          type="button"
+                          class="app-nav-drawer__item app-nav-drawer__item--child"
+                          :class="{ 'app-nav-drawer__item--active': navChildActive(child) }"
+                          @click="go(child.key)"
+                        >
+                          <span class="app-nav-drawer__item-label">{{ child.label }}</span>
+                          <span class="app-nav-drawer__item-arrow" aria-hidden="true">›</span>
+                        </button>
+                      </div>
                     </div>
                   </template>
                 </nav>
 
                 <div class="app-nav-drawer__footer">
                   <p v-if="appVersion" class="app-nav-drawer__version">版本 v{{ appVersion }}</p>
-                  <NButton v-if="auth.me" class="app-nav-drawer__profile-btn" block quaternary @click="openProfile">
-                    编辑用户信息
-                  </NButton>
                   <NButton class="app-nav-drawer__logout" block secondary strong @click="logout">
                     <template #icon>
                       <NavIcon name="logout" />

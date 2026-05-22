@@ -29,7 +29,12 @@ from app.schemas import (
     PracticeGenerateBody,
     PracticeGenerateResult,
 )
-from app.services.ai_client import UpstreamChatError, chat_completion, chat_completion_stream
+from app.services.ai_client import (
+    UpstreamChatError,
+    chat_completion,
+    chat_completion_stream,
+    sniff_image_media_type,
+)
 from app.services.ai_config import get_active_ai_config
 
 router = APIRouter(prefix="/api/practice", tags=["practice"])
@@ -107,8 +112,8 @@ async def _ocr_answer_image(cfg: AiProviderConfig, data: bytes, ctype: str) -> s
         "只输出一个 JSON 对象，字段仅包含 answer_text（字符串，无内容则空字符串）。"
     )
     ocr_user: list[dict] = [
-        {"type": "text", "text": "请识别图片中的学生作答。"},
         {"type": "image_url", "image_url": {"url": data_url}},
+        {"type": "text", "text": "请识别图片中的学生作答。"},
     ]
     ok, content, _ = await chat_completion(
         v_base,
@@ -195,7 +200,7 @@ async def check_practice(
         data = await file.read()
         if len(data) > 15 * 1024 * 1024:
             raise HTTPException(status_code=400, detail="图片过大，请压缩后重试（最大约 15MB）")
-        ctype = file.content_type or "image/jpeg"
+        ctype = sniff_image_media_type(data, file.content_type)
         if not ctype.startswith("image/"):
             raise HTTPException(status_code=400, detail="请上传图片文件")
         ocr_text = await _ocr_answer_image(cfg, data, ctype)

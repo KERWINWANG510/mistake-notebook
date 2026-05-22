@@ -13,7 +13,12 @@ from app.knowledge_tags import normalize_knowledge_tags
 from app.models import AiProviderConfig, Subject, User
 from app.routers.deps import get_current_user
 from app.schemas import AnalyzeResult, OcrStemResult, SolveFromStemBody, SolveSuggestResult
-from app.services.ai_client import UpstreamChatError, chat_completion, chat_completion_stream
+from app.services.ai_client import (
+    UpstreamChatError,
+    chat_completion,
+    chat_completion_stream,
+    sniff_image_media_type,
+)
 from app.services.ai_config import get_active_ai_config
 from app.services.crypto import decrypt_secret
 
@@ -52,9 +57,10 @@ def _build_ocr_user_payload(
             "用户补充说明（请结合图片核对并修正识别结果；若与图片明显冲突则以图片为准）：\n"
             + hint
         )
+    # OpenAI 风格片段；发往 DashScope 时由 ai_client 转为 image/text 键
     return [
-        {"type": "text", "text": "\n\n".join(text_parts)},
         {"type": "image_url", "image_url": {"url": data_url}},
+        {"type": "text", "text": "\n\n".join(text_parts)},
     ]
 
 
@@ -340,7 +346,7 @@ async def analyze_image_stream(
     if len(data) > 15 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="图片过大，请压缩后重试（最大约 15MB）")
 
-    ctype = file.content_type or "image/jpeg"
+    ctype = sniff_image_media_type(data, file.content_type)
     if not ctype.startswith("image/"):
         raise HTTPException(status_code=400, detail="请上传图片文件")
 
@@ -463,7 +469,7 @@ async def analyze_image(
     if len(data) > 15 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="图片过大，请压缩后重试（最大约 15MB）")
 
-    ctype = file.content_type or "image/jpeg"
+    ctype = sniff_image_media_type(data, file.content_type)
     if not ctype.startswith("image/"):
         raise HTTPException(status_code=400, detail="请上传图片文件")
 
