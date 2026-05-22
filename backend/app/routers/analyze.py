@@ -13,10 +13,11 @@ from app.knowledge_tags import normalize_knowledge_tags
 from app.models import AiProviderConfig, Subject, User
 from app.routers.deps import get_current_user
 from app.schemas import AnalyzeResult, OcrStemResult, SolveFromStemBody, SolveSuggestResult
-from app.services.ai_client import (
-    UpstreamChatError,
-    chat_completion,
-    chat_completion_stream,
+from app.services.ai_client import UpstreamChatError, chat_completion, chat_completion_stream
+from app.services.vision_messages import (
+    assert_vision_capable_model,
+    build_vision_user_messages,
+    ensure_image_upload_limits,
     sniff_image_media_type,
 )
 from app.services.ai_config import get_active_ai_config
@@ -45,23 +46,23 @@ _STEM_LAYOUT_SYSTEM = (
 )
 
 
-def _build_ocr_user_payload(
+def _build_ocr_messages(
     data_url: str,
     ocr_hint: str | None = None,
-) -> list[dict[str, str | dict[str, str]]]:
-    """识图用户消息：图片 + 可选的用户补充说明（重新识别时用于纠偏）。"""
-    text_parts = ["请识别图片中的题目题干。"]
+) -> list[dict[str, Any]]:
+    """识图对话消息（OpenAI 兼容多模态格式）。"""
     hint = (ocr_hint or "").strip()
-    if hint:
-        text_parts.append(
-            "用户补充说明（请结合图片核对并修正识别结果；若与图片明显冲突则以图片为准）：\n"
-            + hint
-        )
-    # OpenAI 风格片段；发往 DashScope 时由 ai_client 转为 image/text 键
-    return [
-        {"type": "image_url", "image_url": {"url": data_url}},
-        {"type": "text", "text": "\n\n".join(text_parts)},
-    ]
+    extra = (
+        "用户补充说明（请结合图片核对并修正识别结果；若与图片明显冲突则以图片为准）：\n" + hint
+        if hint
+        else None
+    )
+    return build_vision_user_messages(
+        system_prompt=_OCR_SYSTEM_PROMPT,
+        task_text="请识别图片中的题目题干。",
+        data_url=data_url,
+        extra_text=extra,
+    )
 
 
 def _main_key(cfg: AiProviderConfig) -> str | None:
@@ -104,7 +105,7 @@ async def _reformat_stem_layout(
     s_base, s_chat, s_key = _solve_transport(cfg)
     if not s_key:
         return raw
-    solve_model = model_solve or model or cfg.selected_model_solve or cfg.selected_model
+    solve_model = _resolve_solve_model(cfg, model=model, model_solve=model_solve)
     if not solve_model:
         return raw
     messages: list[dict[str, Any]] = [
@@ -162,6 +163,19 @@ async def _subject_code_lines(db: AsyncSession) -> tuple[list[Subject], str]:
 
 def _ndline(obj: dict) -> bytes:
     return (json.dumps(obj, ensure_ascii=False) + "\n").encode("utf-8")
+
+
+def _resolve_solve_model(
+    cfg: AiProviderConfig,
+    *,
+    model: str | None = None,
+    model_solve: str | None = None,
+) -> str | None:
+    return model_solve or model or cfg.selected_model_solve or cfg.selected_model
+
+
+def _phase_event(phase: str, label: str, model: str) -> dict[str, Any]:
+    return {"type": "phase", "phase": phase, "label": label, "model": model}
 
 
 def _normalize_solve_result(partial: SolveSuggestResult, subjects: list[Subject]) -> SolveSuggestResult:
@@ -343,25 +357,29 @@ async def analyze_image_stream(
         )
 
     data = await file.read()
-    if len(data) > 15 * 1024 * 1024:
-        raise HTTPException(status_code=400, detail="图片过大，请压缩后重试（最大约 15MB）")
-
     ctype = sniff_image_media_type(data, file.content_type)
     if not ctype.startswith("image/"):
         raise HTTPException(status_code=400, detail="请上传图片文件")
 
     b64 = base64.standard_b64encode(data).decode("ascii")
     data_url = f"data:{ctype};base64,{b64}"
+    ensure_image_upload_limits(data, data_url)
 
-    ocr_user = _build_ocr_user_payload(data_url, ocr_hint)
-    ocr_messages: list[dict[str, Any]] = [
-        {"role": "system", "content": _OCR_SYSTEM_PROMPT},
-        {"role": "user", "content": ocr_user},
-    ]
+    assert_vision_capable_model(vision_model)
+    ocr_messages = _build_ocr_messages(data_url, ocr_hint)
+    layout_model = _resolve_solve_model(cfg, model=model, model_solve=model_solve) or solve_model
 
     async def ndjson_gen():
         try:
-            yield _ndline({"type": "phase", "phase": "ocr", "label": "正在识图…"})
+            yield _ndline(
+                {
+                    "type": "models",
+                    "ocr_model": vision_model,
+                    "layout_model": layout_model,
+                    "solve_model": solve_model,
+                },
+            )
+            yield _ndline(_phase_event("ocr", "正在识图…", vision_model))
             ocr_acc = ""
             async for delta in chat_completion_stream(
                 v_base,
@@ -382,7 +400,7 @@ async def analyze_image_stream(
             if not stem_text:
                 yield _ndline({"type": "error", "message": "识图结果为空，请更换识图模型或重试"})
                 return
-            yield _ndline({"type": "phase", "phase": "layout", "label": "正在优化题干排版…"})
+            yield _ndline(_phase_event("layout", "正在优化题干排版…", layout_model))
             stem_text = await _reformat_stem_layout(
                 cfg, stem_text, model=model, model_solve=model_solve
             )
@@ -397,7 +415,7 @@ async def analyze_image_stream(
 
             subjects, solve_messages = await _build_solve_messages(db, stem_text)
 
-            yield _ndline({"type": "phase", "phase": "solve", "label": "正在生成解析与答案…"})
+            yield _ndline(_phase_event("solve", "正在生成解析与答案…", solve_model))
             sol_acc = ""
             async for delta in chat_completion_stream(
                 s_base,
@@ -466,21 +484,16 @@ async def analyze_image(
         )
 
     data = await file.read()
-    if len(data) > 15 * 1024 * 1024:
-        raise HTTPException(status_code=400, detail="图片过大，请压缩后重试（最大约 15MB）")
-
     ctype = sniff_image_media_type(data, file.content_type)
     if not ctype.startswith("image/"):
         raise HTTPException(status_code=400, detail="请上传图片文件")
 
     b64 = base64.standard_b64encode(data).decode("ascii")
     data_url = f"data:{ctype};base64,{b64}"
+    ensure_image_upload_limits(data, data_url)
 
-    ocr_user = _build_ocr_user_payload(data_url, ocr_hint)
-    ocr_messages = [
-        {"role": "system", "content": _OCR_SYSTEM_PROMPT},
-        {"role": "user", "content": ocr_user},
-    ]
+    assert_vision_capable_model(vision_model)
+    ocr_messages = _build_ocr_messages(data_url, ocr_hint)
 
     ok1, ocr_content, _ = await chat_completion(
         v_base,

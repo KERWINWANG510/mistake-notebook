@@ -29,10 +29,11 @@ from app.schemas import (
     PracticeGenerateBody,
     PracticeGenerateResult,
 )
-from app.services.ai_client import (
-    UpstreamChatError,
-    chat_completion,
-    chat_completion_stream,
+from app.services.ai_client import UpstreamChatError, chat_completion, chat_completion_stream
+from app.services.vision_messages import (
+    assert_vision_capable_model,
+    build_vision_user_messages,
+    ensure_image_upload_limits,
     sniff_image_media_type,
 )
 from app.services.ai_config import get_active_ai_config
@@ -107,20 +108,22 @@ async def _ocr_answer_image(cfg: AiProviderConfig, data: bytes, ctype: str) -> s
 
     b64 = base64.standard_b64encode(data).decode("ascii")
     data_url = f"data:{ctype};base64,{b64}"
-    ocr_system = (
-        "你是 OCR 助手。请识别学生手写作答内容（含公式尽量用 LaTeX 或纯文本）。"
-        "只输出一个 JSON 对象，字段仅包含 answer_text（字符串，无内容则空字符串）。"
+    ensure_image_upload_limits(data, data_url)
+    assert_vision_capable_model(vision_model)
+    ocr_messages = build_vision_user_messages(
+        system_prompt=(
+            "你是 OCR 助手。请识别学生手写作答内容（含公式尽量用 LaTeX 或纯文本）。"
+            "只输出一个 JSON 对象，字段仅包含 answer_text（字符串，无内容则空字符串）。"
+        ),
+        task_text="请识别图片中的学生作答。",
+        data_url=data_url,
     )
-    ocr_user: list[dict] = [
-        {"type": "image_url", "image_url": {"url": data_url}},
-        {"type": "text", "text": "请识别图片中的学生作答。"},
-    ]
     ok, content, _ = await chat_completion(
         v_base,
         v_chat,
         v_key,
         vision_model,
-        [{"role": "system", "content": ocr_system}, {"role": "user", "content": ocr_user}],
+        ocr_messages,
         temperature=0.1,
     )
     if not ok or content is None:
@@ -198,8 +201,6 @@ async def check_practice(
 
     if file is not None and file.filename:
         data = await file.read()
-        if len(data) > 15 * 1024 * 1024:
-            raise HTTPException(status_code=400, detail="图片过大，请压缩后重试（最大约 15MB）")
         ctype = sniff_image_media_type(data, file.content_type)
         if not ctype.startswith("image/"):
             raise HTTPException(status_code=400, detail="请上传图片文件")

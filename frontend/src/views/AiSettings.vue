@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import {
   NButton,
   NCard,
@@ -24,6 +24,11 @@ import {
   listAiModelsPreview,
   updateAiConfig,
 } from "../api/client";
+import {
+  mapVisionModelSelectOptions,
+  validateEffectiveVisionSelection,
+  visionModelOcrError,
+} from "../utils/visionModelCapability";
 
 /** OpenAI 兼容接口常用路径，不在表单中展示，固定使用 */
 const DEFAULT_MODELS_PATH = "/models";
@@ -60,6 +65,54 @@ const solveBaseUrl = ref("");
 const solveApiKey = ref("");
 const solveModelOptions = ref<{ label: string; value: string }[]>([]);
 const listingSolve = ref(false);
+
+const visionModelHint = ref("");
+const visionModelHintType = ref<"error" | "warning" | "">("");
+
+const visionSelectOptions = computed(() =>
+  mapVisionModelSelectOptions(separateVision.value ? visionModelOptions.value : modelOptions.value),
+);
+
+function refreshVisionModelHint() {
+  const { error, warning, effective } = validateEffectiveVisionSelection(
+    selectedVision.value,
+    selectedModel.value,
+  );
+  if (error) {
+    visionModelHint.value = error;
+    visionModelHintType.value = "error";
+    return;
+  }
+  if (warning) {
+    visionModelHint.value = warning;
+    visionModelHintType.value = "warning";
+    return;
+  }
+  if (!selectedVision.value?.trim() && effective) {
+    visionModelHint.value = `未单独指定识图模型时，将使用默认模型「${effective}」进行 OCR`;
+    visionModelHintType.value = "";
+    return;
+  }
+  visionModelHint.value = "";
+  visionModelHintType.value = "";
+}
+
+function onVisionModelChange(v: string | null) {
+  const id = (v ?? "").trim();
+  if (id) {
+    const err = visionModelOcrError(id);
+    if (err) {
+      message.error(err);
+      selectedVision.value = null;
+      refreshVisionModelHint();
+      return;
+    }
+  }
+  selectedVision.value = v;
+  refreshVisionModelHint();
+}
+
+watch([selectedVision, selectedModel], refreshVisionModelHint);
 
 const canFetchModels = computed(() => {
   const hasUrl = Boolean(baseUrl.value.trim());
@@ -108,6 +161,7 @@ function onSeparateVision(v: boolean) {
     visionBaseUrl.value = "";
     visionApiKey.value = "";
     visionModelOptions.value = [];
+    selectedVision.value = null;
   }
 }
 
@@ -163,6 +217,8 @@ function openCreate() {
   if (!baseUrl.value && presetId.value === "custom_openai") {
     baseUrl.value = "";
   }
+  visionModelHint.value = "";
+  visionModelHintType.value = "";
   showModal.value = true;
 }
 
@@ -201,6 +257,18 @@ async function saveDraft() {
     }
   }
 
+  const visionCheck = validateEffectiveVisionSelection(
+    selectedVision.value,
+    selectedModel.value,
+  );
+  if (!visionCheck.ok) {
+    message.error(visionCheck.error ?? "所选模型不支持 OCR 识图");
+    return;
+  }
+  if (visionCheck.warning) {
+    message.warning(visionCheck.warning);
+  }
+
   saving.value = true;
   try {
     if (editingId.value) {
@@ -218,6 +286,7 @@ async function saveDraft() {
       if (!separateVision.value) {
         payload.vision_base_url = null;
         payload.vision_preset_id = null;
+        payload.vision_api_key = null;
       } else {
         payload.vision_base_url = visionBaseUrl.value.trim();
         payload.vision_preset_id = visionPresetId.value;
@@ -226,6 +295,7 @@ async function saveDraft() {
       if (!separateSolve.value) {
         payload.solve_base_url = null;
         payload.solve_preset_id = null;
+        payload.solve_api_key = null;
       } else {
         payload.solve_base_url = solveBaseUrl.value.trim();
         payload.solve_preset_id = solvePresetId.value;
@@ -289,6 +359,7 @@ async function fetchModels() {
       return;
     }
     modelOptions.value = res.models.map((m) => ({ label: m.id, value: m.id }));
+    refreshVisionModelHint();
     message.success(`主接入：获取到 ${modelOptions.value.length} 个模型`);
   } catch (e) {
     message.error((e as Error).message);
@@ -322,6 +393,7 @@ async function fetchVisionModels() {
       return;
     }
     visionModelOptions.value = res.models.map((m) => ({ label: m.id, value: m.id }));
+    refreshVisionModelHint();
     message.success(`识图接入：获取到 ${visionModelOptions.value.length} 个模型`);
   } catch (e) {
     message.error((e as Error).message);
@@ -384,25 +456,31 @@ async function remove(id: string) {
 }
 
 
-function openEdit(r: AiConfig) {
+function bindEditForm(r: AiConfig) {
   editingId.value = r.id;
   userLabel.value = r.user_label;
   presetId.value = r.preset_id;
   baseUrl.value = r.base_url;
   apiKey.value = "";
   selectedModel.value = r.selected_model;
-  selectedVision.value = r.selected_model_vision ?? null;
   selectedSolve.value = r.selected_model_solve ?? null;
 
   resetModalForm();
-  separateVision.value = Boolean(r.vision_base_url?.trim() && r.has_vision_api_key);
-  if (separateVision.value) {
+
+  const hasSeparateVision = Boolean(r.vision_base_url?.trim());
+  separateVision.value = hasSeparateVision;
+  if (hasSeparateVision) {
     visionPresetId.value = r.vision_preset_id ?? null;
     visionBaseUrl.value = r.vision_base_url ?? "";
     visionApiKey.value = "";
+    selectedVision.value = r.selected_model_vision ?? null;
+  } else {
+    selectedVision.value = r.selected_model_vision ?? null;
   }
-  separateSolve.value = Boolean(r.solve_base_url?.trim() && r.has_solve_api_key);
-  if (separateSolve.value) {
+
+  const hasSeparateSolve = Boolean(r.solve_base_url?.trim());
+  separateSolve.value = hasSeparateSolve;
+  if (hasSeparateSolve) {
     solvePresetId.value = r.solve_preset_id ?? null;
     solveBaseUrl.value = r.solve_base_url ?? "";
     solveApiKey.value = "";
@@ -413,12 +491,28 @@ function openEdit(r: AiConfig) {
     if (x) ids.add(x);
   }
   modelOptions.value = [...ids].map((id) => ({ label: id, value: id }));
-  if (separateVision.value && r.selected_model_vision) {
+  if (hasSeparateVision && r.selected_model_vision) {
     visionModelOptions.value = [{ label: r.selected_model_vision, value: r.selected_model_vision }];
   }
-  if (separateSolve.value && r.selected_model_solve) {
+  if (hasSeparateSolve && r.selected_model_solve) {
     solveModelOptions.value = [{ label: r.selected_model_solve, value: r.selected_model_solve }];
   }
+}
+
+async function openEdit(r: AiConfig) {
+  try {
+    await load();
+  } catch (e) {
+    message.error((e as Error).message);
+    return;
+  }
+  const fresh = rows.value.find((x) => x.id === r.id);
+  if (!fresh) {
+    message.warning("配置不存在或已删除");
+    return;
+  }
+  bindEditForm(fresh);
+  refreshVisionModelHint();
   showModal.value = true;
 }
 </script>
@@ -451,14 +545,14 @@ function openEdit(r: AiConfig) {
                   <span class="entity-card__label">识图</span>
                   <span class="entity-card__value entity-card__value--inline">
                     {{ r.selected_model_vision ?? "（同默认）" }}
-                    <NTag v-if="r.has_vision_api_key" size="small" type="info" :bordered="false">独立</NTag>
+                    <NTag v-if="r.vision_base_url?.trim()" size="small" type="info" :bordered="false">独立</NTag>
                   </span>
                 </div>
                 <div class="entity-card__row">
                   <span class="entity-card__label">解题</span>
                   <span class="entity-card__value entity-card__value--inline">
                     {{ r.selected_model_solve ?? "（同默认）" }}
-                    <NTag v-if="r.has_solve_api_key" size="small" type="info" :bordered="false">独立</NTag>
+                    <NTag v-if="r.solve_base_url?.trim()" size="small" type="info" :bordered="false">独立</NTag>
                   </span>
                 </div>
                 <div class="entity-card__row">
@@ -532,7 +626,7 @@ function openEdit(r: AiConfig) {
           </div>
         </template>
         <NSelect
-          v-model:value="selectedVision"
+          :value="selectedVision"
           filterable
           tag
           clearable
@@ -541,9 +635,18 @@ function openEdit(r: AiConfig) {
               ? '识图模型（在识图独立服务商下选择，需先拉取列表）'
               : '识图 / OCR 模型（可留空，留空则与默认模型相同）'
           "
-          :options="separateVision ? visionModelOptions : modelOptions"
+          :options="visionSelectOptions"
           style="width: 100%"
+          @update:value="onVisionModelChange"
         />
+        <NText
+          v-if="visionModelHint"
+          :type="visionModelHintType === 'error' ? 'error' : visionModelHintType === 'warning' ? 'warning' : undefined"
+          depth="3"
+          style="font-size: 12px; display: block; margin-top: -4px"
+        >
+          {{ visionModelHint }}
+        </NText>
 
         <NSpace align="center" justify="space-between" style="width: 100%">
           <NText strong>解题使用独立服务商</NText>

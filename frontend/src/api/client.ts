@@ -175,9 +175,17 @@ export type AnalyzeResult = {
   knowledge_tags: string[];
 };
 
+export type AnalyzeStreamPhase = "ocr" | "layout" | "solve";
+
 /** 错题图片流式识别：NDJSON 行事件（与后端 /api/analyze/stream 一致） */
 export type AnalyzeStreamEvent =
-  | { type: "phase"; phase: "ocr" | "layout" | "solve"; label: string }
+  | {
+      type: "models";
+      ocr_model: string;
+      layout_model: string;
+      solve_model: string;
+    }
+  | { type: "phase"; phase: AnalyzeStreamPhase; label: string; model: string }
   | { type: "delta"; phase: "ocr" | "solve"; text: string }
   | { type: "stem"; text: string }
   | {
@@ -868,6 +876,26 @@ export async function listAiModelsPreview(payload: {
     error_code?: string | null;
     message?: string | null;
   }>("/api/ai/list-models-preview", payload);
+  return data;
+}
+
+export type ValidateVisionModelResult = {
+  ok: boolean;
+  effective_model?: string | null;
+  error?: string | null;
+  warning?: string | null;
+  likely_vision?: boolean;
+};
+
+/** 校验识图/OCR 模型是否支持图片输入 */
+export async function validateVisionModel(payload: {
+  model: string;
+  fallback_model?: string | null;
+}) {
+  const { data } = await http.post<ValidateVisionModelResult>(
+    "/api/ai/validate-vision-model",
+    payload,
+  );
   return data;
 }
 

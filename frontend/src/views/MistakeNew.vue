@@ -19,7 +19,15 @@ import {
   useMessage,
 } from "naive-ui";
 import type { Subject, Grade } from "../api/client";
-import { analyzeImageStream, createMistake, fetchGrades, fetchSubjects, solveFromStem } from "../api/client";
+import {
+  analyzeImageStream,
+  createMistake,
+  fetchGrades,
+  fetchSubjects,
+  solveFromStem,
+  type AnalyzeStreamEvent,
+  type AnalyzeStreamPhase,
+} from "../api/client";
 import AnalysisField from "../components/AnalysisField.vue";
 import { ERROR_REASON_OPTIONS } from "../constants/errorReasons";
 import { MISTAKE_SOURCE_OPTIONS } from "../constants/mistakeSources";
@@ -41,7 +49,84 @@ const reanalyzeHint = ref("");
 const analyzeStreamOcr = ref("");
 const analyzeStreamSolve = ref("");
 const analyzePhaseLabel = ref("");
+const analyzeModels = ref<{ ocr: string; layout: string; solve: string } | null>(null);
+const analyzeActivePhase = ref<AnalyzeStreamPhase | null>(null);
+const analyzeCompletedPhases = ref<AnalyzeStreamPhase[]>([]);
 const analyzeAbortCtrl = ref<AbortController | null>(null);
+
+const ANALYZE_STEP_META: { phase: AnalyzeStreamPhase; title: string }[] = [
+  { phase: "ocr", title: "识图" },
+  { phase: "layout", title: "题干排版" },
+  { phase: "solve", title: "生成解析与答案" },
+];
+
+function resetAnalyzeProgress() {
+  analyzeStreamOcr.value = "";
+  analyzeStreamSolve.value = "";
+  analyzePhaseLabel.value = "准备识别…";
+  analyzeModels.value = null;
+  analyzeActivePhase.value = null;
+  analyzeCompletedPhases.value = [];
+}
+
+function formatAnalyzePhaseDesc(label: string, model?: string) {
+  const m = model?.trim();
+  return m ? `${label}（${m}）` : label;
+}
+
+function analyzeStepStatus(phase: AnalyzeStreamPhase): "pending" | "active" | "done" {
+  if (analyzeActivePhase.value === phase) return "active";
+  if (analyzeCompletedPhases.value.includes(phase)) return "done";
+  return "pending";
+}
+
+const analyzeStepRows = computed(() =>
+  ANALYZE_STEP_META.map((meta) => ({
+    ...meta,
+    status: analyzeStepStatus(meta.phase),
+    model: analyzeModels.value?.[meta.phase === "ocr" ? "ocr" : meta.phase === "layout" ? "layout" : "solve"] ?? "",
+  })),
+);
+
+function markAnalyzePhaseComplete(phase: AnalyzeStreamPhase) {
+  if (!analyzeCompletedPhases.value.includes(phase)) {
+    analyzeCompletedPhases.value = [...analyzeCompletedPhases.value, phase];
+  }
+}
+
+function onAnalyzeStreamEvent(ev: AnalyzeStreamEvent) {
+  if (ev.type === "models") {
+    analyzeModels.value = {
+      ocr: ev.ocr_model,
+      layout: ev.layout_model,
+      solve: ev.solve_model,
+    };
+    return;
+  }
+  if (ev.type === "phase") {
+    if (analyzeActivePhase.value) {
+      markAnalyzePhaseComplete(analyzeActivePhase.value);
+    }
+    analyzeActivePhase.value = ev.phase;
+    analyzePhaseLabel.value = formatAnalyzePhaseDesc(ev.label, ev.model);
+    if (analyzeModels.value) {
+      const key = ev.phase === "ocr" ? "ocr" : ev.phase === "layout" ? "layout" : "solve";
+      analyzeModels.value = { ...analyzeModels.value, [key]: ev.model };
+    }
+    return;
+  }
+  if (ev.type === "delta") {
+    if (ev.phase === "ocr") analyzeStreamOcr.value += ev.text;
+    else analyzeStreamSolve.value += ev.text;
+    return;
+  }
+  if (ev.type === "stem") {
+    if (analyzeActivePhase.value === "layout") {
+      markAnalyzePhaseComplete("layout");
+    }
+    stem.value = ev.text;
+  }
+}
 const streamOcrPreRef = ref<HTMLElement | null>(null);
 const streamSolvePreRef = ref<HTMLElement | null>(null);
 
@@ -669,31 +754,20 @@ async function runAnalyze(ocrHint?: string) {
   analyzeAbortCtrl.value?.abort();
   analyzeAbortCtrl.value = new AbortController();
   analyzing.value = true;
-  analyzeStreamOcr.value = "";
-  analyzeStreamSolve.value = "";
-  analyzePhaseLabel.value = "准备识别…";
+  resetAnalyzeProgress();
   try {
     const hint = ocrHint?.trim();
     const res = await analyzeImageStream(
       uploadFile.value,
-      (ev) => {
-        if (ev.type === "phase") {
-          analyzePhaseLabel.value = ev.label;
-          return;
-        }
-        if (ev.type === "delta") {
-          if (ev.phase === "ocr") analyzeStreamOcr.value += ev.text;
-          else analyzeStreamSolve.value += ev.text;
-          return;
-        }
-        if (ev.type === "stem") {
-          stem.value = ev.text;
-        }
-      },
+      (ev) => onAnalyzeStreamEvent(ev),
       hint ? { ocr_hint: hint } : undefined,
       analyzeAbortCtrl.value.signal,
     );
     stem.value = res.stem;
+    markAnalyzePhaseComplete("ocr");
+    markAnalyzePhaseComplete("layout");
+    markAnalyzePhaseComplete("solve");
+    analyzeActivePhase.value = null;
     await applySolveSuggestions(res, { fallbackSubject: true });
     hasRecognized.value = true;
     message.success(usedCropRegion.value ? "已按框选区域识别，请核对题干并保存" : "识别完成，请核对题干并保存");
@@ -704,6 +778,9 @@ async function runAnalyze(ocrHint?: string) {
   } finally {
     analyzing.value = false;
     analyzePhaseLabel.value = "";
+    analyzeModels.value = null;
+    analyzeActivePhase.value = null;
+    analyzeCompletedPhases.value = [];
     analyzeAbortCtrl.value = null;
   }
 }
@@ -953,13 +1030,30 @@ async function save() {
                   <NText depth="3" class="mistake-new__stream-tip mistake-new__stream-tip--mobile">
                     AI 识别中，完成后自动填入下方
                   </NText>
+                  <ol v-if="analyzeModels" class="mistake-new__analyze-steps" aria-label="识别步骤与模型">
+                    <li
+                      v-for="step in analyzeStepRows"
+                      :key="step.phase"
+                      class="mistake-new__analyze-step"
+                      :class="`mistake-new__analyze-step--${step.status}`"
+                    >
+                      <span class="mistake-new__analyze-step-title">{{ step.title }}</span>
+                      <span class="mistake-new__analyze-step-model">{{ step.model || "—" }}</span>
+                    </li>
+                  </ol>
                   <div class="mistake-new__stream-columns">
                     <div class="mistake-new__stream-col">
-                      <div class="mistake-new__stream-col-title">识图模型</div>
+                      <div class="mistake-new__stream-col-title">
+                        识图输出
+                        <span v-if="analyzeModels" class="mistake-new__stream-col-model">{{ analyzeModels.ocr }}</span>
+                      </div>
                       <pre ref="streamOcrPreRef" class="mistake-new__stream-pre">{{ analyzeStreamOcr }}</pre>
                     </div>
                     <div class="mistake-new__stream-col">
-                      <div class="mistake-new__stream-col-title">解题模型</div>
+                      <div class="mistake-new__stream-col-title">
+                        解析输出
+                        <span v-if="analyzeModels" class="mistake-new__stream-col-model">{{ analyzeModels.solve }}</span>
+                      </div>
                       <pre ref="streamSolvePreRef" class="mistake-new__stream-pre">{{ analyzeStreamSolve }}</pre>
                     </div>
                   </div>
@@ -1267,11 +1361,68 @@ async function save() {
   gap: 10px;
 }
 
+.mistake-new__analyze-steps {
+  list-style: none;
+  margin: 0 0 10px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mistake-new__analyze-step {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  background: rgba(255, 255, 255, 0.75);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.mistake-new__analyze-step--active {
+  border-color: rgba(99, 102, 241, 0.45);
+  background: rgba(99, 102, 241, 0.08);
+}
+
+.mistake-new__analyze-step--done {
+  opacity: 0.72;
+}
+
+.mistake-new__analyze-step-title {
+  font-weight: 600;
+  color: #334155;
+  flex-shrink: 0;
+}
+
+.mistake-new__analyze-step-model {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  color: #6366f1;
+  text-align: right;
+  word-break: break-all;
+}
+
 .mistake-new__stream-col-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
   font-size: 11px;
   font-weight: 600;
   color: #64748b;
   margin-bottom: 4px;
+}
+
+.mistake-new__stream-col-model {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-weight: 500;
+  font-size: 10px;
+  color: #6366f1;
+  word-break: break-all;
 }
 
 .mistake-new__stream-pre {

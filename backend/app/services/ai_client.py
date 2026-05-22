@@ -32,90 +32,6 @@ def join_url(base_url: str, path: str) -> str:
     return f"{b}{p}"
 
 
-def is_dashscope_compatible_base_url(base_url: str) -> bool:
-    """是否为阿里云百炼 DashScope OpenAI 兼容端点。"""
-    u = (base_url or "").lower()
-    return "dashscope" in u and "aliyuncs.com" in u
-
-
-def sniff_image_media_type(data: bytes, fallback: str | None = None) -> str:
-    """根据文件头推断图片 MIME，避免 Docker/反代将 content-type 标成 octet-stream。"""
-    if len(data) >= 8 and data[:8] == b"\x89PNG\r\n\x1a\n":
-        return "image/png"
-    if len(data) >= 3 and data[:3] == b"\xff\xd8\xff":
-        return "image/jpeg"
-    if len(data) >= 6 and data[:6] in (b"GIF87a", b"GIF89a"):
-        return "image/gif"
-    if len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP":
-        return "image/webp"
-    fb = (fallback or "").split(";")[0].strip().lower()
-    if fb.startswith("image/"):
-        return fb
-    return "image/jpeg"
-
-
-def _dashscope_content_part(item: dict[str, Any]) -> dict[str, Any] | None:
-    """将 OpenAI 风格多模态片段转为 DashScope 要求的 image/text 键。"""
-    if "image" in item and isinstance(item["image"], str):
-        return {"image": item["image"]}
-    if "text" in item and "type" not in item and isinstance(item["text"], str):
-        return {"text": item["text"]}
-
-    part_type = item.get("type")
-    if part_type == "image_url" or "image_url" in item:
-        raw = item.get("image_url")
-        url = raw.get("url") if isinstance(raw, dict) else raw
-        if isinstance(url, str) and url.strip():
-            return {"image": url.strip()}
-        return None
-    if part_type == "text" or (isinstance(item.get("text"), str) and item.get("text")):
-        return {"text": str(item["text"])}
-    if part_type == "image":
-        url = item.get("image") or item.get("url")
-        if isinstance(url, str) and url.strip():
-            return {"image": url.strip()}
-    return None
-
-
-def normalize_messages_for_upstream(
-    base_url: str,
-    messages: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    """按上游要求规范化 messages（主要为 DashScope 多模态 content 格式）。"""
-    if not is_dashscope_compatible_base_url(base_url):
-        return messages
-
-    normalized: list[dict[str, Any]] = []
-    for msg in messages:
-        m = dict(msg)
-        content = m.get("content")
-        if not isinstance(content, list):
-            normalized.append(m)
-            continue
-
-        images: list[dict[str, Any]] = []
-        texts: list[dict[str, Any]] = []
-        others: list[dict[str, Any]] = []
-        for item in content:
-            if not isinstance(item, dict):
-                continue
-            part = _dashscope_content_part(item)
-            if part is None:
-                continue
-            if "image" in part:
-                images.append(part)
-            elif "text" in part:
-                texts.append(part)
-            else:
-                others.append(part)
-        if not images and not texts:
-            normalized.append(m)
-            continue
-        m["content"] = images + texts + others
-        normalized.append(m)
-    return normalized
-
-
 async def fetch_models(base_url: str, models_path: str, api_key: str | None) -> ListModelsResponse:
     url = join_url(base_url, models_path)
     headers: dict[str, str] = {}
@@ -177,7 +93,7 @@ async def chat_completion(
         headers["Authorization"] = f"Bearer {api_key}"
     payload: dict[str, Any] = {
         "model": model,
-        "messages": normalize_messages_for_upstream(base_url, messages),
+        "messages": messages,
         "temperature": effective_chat_temperature(model, temperature),
     }
     if response_format is not None:
@@ -237,7 +153,7 @@ async def chat_completion_stream(
         headers["Authorization"] = f"Bearer {api_key}"
     payload: dict[str, Any] = {
         "model": model,
-        "messages": normalize_messages_for_upstream(base_url, messages),
+        "messages": messages,
         "temperature": effective_chat_temperature(model, temperature),
         "stream": True,
     }

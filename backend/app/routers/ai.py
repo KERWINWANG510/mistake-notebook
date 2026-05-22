@@ -14,15 +14,59 @@ from app.schemas import (
     AiPresetOut,
     ListModelsPreviewBody,
     ListModelsResponse,
+    ValidateVisionModelBody,
+    ValidateVisionModelResult,
 )
 from app.services.ai_client import fetch_models
+from app.services.vision_messages import (
+    assert_vision_selection,
+    effective_vision_model,
+    is_likely_vision_capable_model,
+    vision_model_ocr_error,
+    vision_model_ocr_warning,
+)
 from app.services.ai_config import require_user_ai_config
 from app.services.crypto import decrypt_secret, encrypt_secret
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
 
 
+def _sync_separate_vision_fields(row: AiProviderConfig) -> bool:
+    """未配置识图独立 Base URL 时，一并清空识图侧预设与密钥，避免残留导致界面误判。"""
+    if (row.vision_base_url or "").strip():
+        return False
+    changed = False
+    if row.vision_base_url is not None:
+        row.vision_base_url = None
+        changed = True
+    if row.vision_preset_id is not None:
+        row.vision_preset_id = None
+        changed = True
+    if row.vision_api_key_cipher is not None:
+        row.vision_api_key_cipher = None
+        changed = True
+    return changed
+
+
+def _sync_separate_solve_fields(row: AiProviderConfig) -> bool:
+    if (row.solve_base_url or "").strip():
+        return False
+    changed = False
+    if row.solve_base_url is not None:
+        row.solve_base_url = None
+        changed = True
+    if row.solve_preset_id is not None:
+        row.solve_preset_id = None
+        changed = True
+    if row.solve_api_key_cipher is not None:
+        row.solve_api_key_cipher = None
+        changed = True
+    return changed
+
+
 def _config_out(row: AiProviderConfig) -> AiConfigOut:
+    vision_base = (row.vision_base_url or "").strip() or None
+    solve_base = (row.solve_base_url or "").strip() or None
     return AiConfigOut(
         id=row.id,
         user_label=row.user_label,
@@ -33,12 +77,12 @@ def _config_out(row: AiProviderConfig) -> AiConfigOut:
         selected_model=row.selected_model,
         selected_model_vision=row.selected_model_vision,
         selected_model_solve=row.selected_model_solve,
-        vision_preset_id=row.vision_preset_id,
-        vision_base_url=row.vision_base_url,
-        has_vision_api_key=bool(row.vision_api_key_cipher),
-        solve_preset_id=row.solve_preset_id,
-        solve_base_url=row.solve_base_url,
-        has_solve_api_key=bool(row.solve_api_key_cipher),
+        vision_preset_id=row.vision_preset_id if vision_base else None,
+        vision_base_url=vision_base,
+        has_vision_api_key=bool(vision_base),
+        solve_preset_id=row.solve_preset_id if solve_base else None,
+        solve_base_url=solve_base,
+        has_solve_api_key=bool(solve_base),
         is_active=row.is_active,
         has_api_key=bool(row.api_key_cipher),
         created_at=row.created_at,
@@ -67,6 +111,12 @@ async def list_configs(
         .order_by(AiProviderConfig.created_at.desc())
     )
     rows = result.scalars().all()
+    dirty = False
+    for row in rows:
+        dirty = _sync_separate_vision_fields(row) or dirty
+        dirty = _sync_separate_solve_fields(row) or dirty
+    if dirty:
+        await db.commit()
     return [_config_out(r) for r in rows]
 
 
@@ -100,6 +150,10 @@ async def create_config(
         pr = await db.get(AiProviderPreset, body.solve_preset_id)
         if not pr:
             raise HTTPException(status_code=400, detail="无效的解题 preset_id")
+    assert_vision_selection(
+        selected_model_vision=body.selected_model_vision,
+        selected_model=body.selected_model,
+    )
     row = AiProviderConfig(
         user_id=user.id,
         user_label=body.user_label,
@@ -120,6 +174,8 @@ async def create_config(
         is_active=False,
     )
     db.add(row)
+    _sync_separate_vision_fields(row)
+    _sync_separate_solve_fields(row)
     await db.commit()
     await db.refresh(row)
     total = await db.scalar(
@@ -164,31 +220,63 @@ async def update_config(
         vb_raw = data["vision_base_url"]
         if vb_raw is None or (isinstance(vb_raw, str) and not vb_raw.strip()):
             row.vision_base_url = None
-            row.vision_api_key_cipher = None
-            row.vision_preset_id = None
         else:
             row.vision_base_url = str(vb_raw).strip().rstrip("/")
     if "vision_preset_id" in data:
         row.vision_preset_id = data["vision_preset_id"] or None
-    if "vision_api_key" in data and data["vision_api_key"]:
-        row.vision_api_key_cipher = encrypt_secret(data["vision_api_key"])
+    if "vision_api_key" in data:
+        vk_raw = data["vision_api_key"]
+        if vk_raw:
+            row.vision_api_key_cipher = encrypt_secret(str(vk_raw))
+        else:
+            row.vision_api_key_cipher = None
 
     if "solve_base_url" in data:
         sb_raw = data["solve_base_url"]
         if sb_raw is None or (isinstance(sb_raw, str) and not sb_raw.strip()):
             row.solve_base_url = None
-            row.solve_api_key_cipher = None
-            row.solve_preset_id = None
         else:
             row.solve_base_url = str(sb_raw).strip().rstrip("/")
     if "solve_preset_id" in data:
         row.solve_preset_id = data["solve_preset_id"] or None
-    if "solve_api_key" in data and data["solve_api_key"]:
-        row.solve_api_key_cipher = encrypt_secret(data["solve_api_key"])
+    if "solve_api_key" in data:
+        sk_raw = data["solve_api_key"]
+        if sk_raw:
+            row.solve_api_key_cipher = encrypt_secret(str(sk_raw))
+        else:
+            row.solve_api_key_cipher = None
+
+    _sync_separate_vision_fields(row)
+    _sync_separate_solve_fields(row)
+
+    assert_vision_selection(
+        selected_model_vision=row.selected_model_vision,
+        selected_model=row.selected_model,
+    )
 
     await db.commit()
     await db.refresh(row)
     return _config_out(row)
+
+
+@router.post("/validate-vision-model", response_model=ValidateVisionModelResult)
+async def validate_vision_model(
+    body: ValidateVisionModelBody,
+    _: User = Depends(get_current_user),
+) -> ValidateVisionModelResult:
+    """校验识图/OCR 将使用的模型是否支持图片输入。"""
+    effective = effective_vision_model(body.model, body.fallback_model)
+    if not effective:
+        return ValidateVisionModelResult(ok=True, effective_model=None)
+    err = vision_model_ocr_error(effective)
+    if err:
+        return ValidateVisionModelResult(ok=False, effective_model=effective, error=err)
+    return ValidateVisionModelResult(
+        ok=True,
+        effective_model=effective,
+        warning=vision_model_ocr_warning(effective),
+        likely_vision=is_likely_vision_capable_model(effective),
+    )
 
 
 @router.delete("/configs/{config_id}")

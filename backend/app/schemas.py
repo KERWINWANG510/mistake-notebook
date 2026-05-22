@@ -367,10 +367,10 @@ class AiConfigOut(BaseModel):
     selected_model_solve: str | None = None
     vision_preset_id: str | None = None
     vision_base_url: str | None = None
-    has_vision_api_key: bool = False
+    has_vision_api_key: bool = False  # 是否启用识图独立服务商（以 vision_base_url 为准）
     solve_preset_id: str | None = None
     solve_base_url: str | None = None
-    has_solve_api_key: bool = False
+    has_solve_api_key: bool = False  # 是否启用解题独立服务商（以 solve_base_url 为准）
     is_active: bool
     has_api_key: bool
     created_at: datetime
@@ -432,6 +432,25 @@ class ListModelsPreviewBody(BaseModel):
     base_url: str = Field(..., min_length=1, max_length=512)
     models_path: str = Field(default="/models", max_length=128)
     api_key: str = Field(..., min_length=1, max_length=2048)
+
+
+class ValidateVisionModelBody(BaseModel):
+    """校验模型是否可用于错题 OCR 识图。"""
+
+    model: str = Field(..., min_length=1, max_length=256)
+    fallback_model: str | None = Field(
+        None,
+        max_length=256,
+        description="识图专用模型为空时回退的默认模型 id",
+    )
+
+
+class ValidateVisionModelResult(BaseModel):
+    ok: bool
+    effective_model: str | None = None
+    error: str | None = None
+    warning: str | None = None
+    likely_vision: bool = False
 
 
 class AnalyzeResult(BaseModel):
