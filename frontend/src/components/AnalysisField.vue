@@ -45,6 +45,7 @@ const mode = ref<"edit" | "preview">("preview");
       v-model:value="model"
       type="textarea"
       size="small"
+      clearable
       :placeholder="
         placeholder ??
         (variant === 'stem'

@@ -399,10 +399,10 @@ onDeactivated(() => {
 
     <section v-show="filtersOpen" class="search-filters surface-card">
       <div class="search-filters__grid">
-        <NSelect v-model:value="gradeId" size="small" :options="gradeOptions" placeholder="年级" />
-        <NSelect v-model:value="subjectId" size="small" :options="subjectOptions" placeholder="科目" />
-        <NSelect v-model:value="mastery" size="small" :options="masteryOptions" placeholder="掌握" />
-        <NSelect v-model:value="hasImage" size="small" :options="hasImageOptions" placeholder="配图" />
+        <NSelect v-model:value="gradeId" size="small" clearable :options="gradeOptions" placeholder="年级" />
+        <NSelect v-model:value="subjectId" size="small" clearable :options="subjectOptions" placeholder="科目" />
+        <NSelect v-model:value="mastery" size="small" clearable :options="masteryOptions" placeholder="掌握" />
+        <NSelect v-model:value="hasImage" size="small" clearable :options="hasImageOptions" placeholder="配图" />
         <NDatePicker
           v-model:value="dateRange"
           size="small"

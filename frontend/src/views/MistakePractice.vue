@@ -241,6 +241,7 @@ async function addToNotebook() {
                     v-model:value="userAnswer"
                     type="textarea"
                     size="small"
+                    clearable
                     placeholder="在此输入你的答案（可与图片作答同时使用）"
                     :autosize="{ minRows: 3, maxRows: 10 }"
                     :disabled="checking"

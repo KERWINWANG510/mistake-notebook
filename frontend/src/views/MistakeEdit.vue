@@ -423,6 +423,7 @@ async function save() {
                 v-model:value="answer"
                 type="textarea"
                 size="small"
+                clearable
                 placeholder="最终答案"
                 :autosize="{ minRows: 2, maxRows: 10 }"
               />

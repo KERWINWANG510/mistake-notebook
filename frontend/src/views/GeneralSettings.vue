@@ -65,6 +65,7 @@ async function save() {
               v-model:value="dailyTarget"
               :min="1"
               :max="200"
+              clearable
               size="small"
               style="width: 100%; max-width: 200px"
               :disabled="saving"

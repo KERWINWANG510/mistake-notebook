@@ -73,6 +73,7 @@ async function submit() {
             <NInput
               v-model:value="username"
               size="large"
+              clearable
               placeholder="用户名"
               autocomplete="username"
               @keyup.enter="submit"
@@ -92,6 +93,7 @@ async function submit() {
               v-model:value="password"
               type="password"
               size="large"
+              clearable
               placeholder="密码"
               show-password-on="click"
               autocomplete="current-password"

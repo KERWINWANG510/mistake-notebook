@@ -704,6 +704,7 @@ function onPrint() {
                         placeholder="请先选年级"
                         :disabled="!gradeId"
                         filterable
+                        clearable
                       />
                     </NFormItem>
                   </div>
@@ -821,6 +822,7 @@ function onPrint() {
                       :max="200"
                       :step="5"
                       :show-button="false"
+                      clearable
                       placeholder="默认 100"
                       style="width: 100%"
                     />

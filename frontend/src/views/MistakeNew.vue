@@ -1097,6 +1097,7 @@ async function save() {
                       v-model:value="answer"
                       type="textarea"
                       size="small"
+                      clearable
                       placeholder="最终答案"
                       :autosize="{ minRows: narrow ? 2 : 2, maxRows: narrow ? 6 : 10 }"
                     />
@@ -1194,6 +1195,7 @@ async function save() {
       <NInput
         v-model:value="reanalyzeHint"
         type="textarea"
+        clearable
         :autosize="{ minRows: 6, maxRows: 14 }"
         placeholder="例如：第 2 题选项 B 是 boy 不是 toy；划线在字母 o 上…"
         class="reanalyze-modal__input"

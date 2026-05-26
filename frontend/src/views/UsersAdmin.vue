@@ -305,17 +305,19 @@ async function remove(user: MeUser) {
 
     <NModal v-model:show="showAdd" preset="dialog" title="新建用户" style="width: min(480px, 92vw)">
       <NSpace vertical style="width: 100%; margin-top: 12px" :size="12">
-        <NInput v-model:value="newUsername" placeholder="登录用户名（唯一，用于登录）" />
-        <NInput v-model:value="newFullName" placeholder="用户姓名" />
+        <NInput v-model:value="newUsername" clearable placeholder="登录用户名（唯一，用于登录）" />
+        <NInput v-model:value="newFullName" clearable placeholder="用户姓名" />
         <NSelect
           v-model:value="newEducationStage"
           :options="stageOptions"
+          clearable
           placeholder="教育阶段（小学 / 初中 / 高中 / 大学）"
         />
         <NInputNumber
           v-model:value="newEnrollmentYear"
           :min="1980"
           :max="2050"
+          clearable
           placeholder="入学年份"
           style="width: 100%"
         />
@@ -330,6 +332,7 @@ async function remove(user: MeUser) {
         <NInput
           v-model:value="newPassword"
           type="password"
+          clearable
           show-password-on="click"
           placeholder="设置初始登录密码（不少于 4 位）"
         />
@@ -359,13 +362,14 @@ async function remove(user: MeUser) {
             <NButton size="small">上传头像</NButton>
           </NUpload>
         </div>
-        <NInput v-model:value="editUsername" placeholder="登录用户名" />
-        <NInput v-model:value="editFullName" placeholder="用户姓名" />
-        <NSelect v-model:value="editEducationStage" :options="stageOptions" placeholder="教育阶段" />
+        <NInput v-model:value="editUsername" clearable placeholder="登录用户名" />
+        <NInput v-model:value="editFullName" clearable placeholder="用户姓名" />
+        <NSelect v-model:value="editEducationStage" clearable :options="stageOptions" placeholder="教育阶段" />
         <NInputNumber
           v-model:value="editEnrollmentYear"
           :min="1980"
           :max="2050"
+          clearable
           placeholder="入学年份"
           style="width: 100%"
         />
@@ -380,6 +384,7 @@ async function remove(user: MeUser) {
         <NInput
           v-model:value="editPassword"
           type="password"
+          clearable
           show-password-on="click"
           placeholder="新密码（留空则不修改）"
         />

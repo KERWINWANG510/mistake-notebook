@@ -577,14 +577,21 @@ async function openEdit(r: AiConfig) {
 
     <NModal v-model:show="showModal" style="width: min(640px, 92vw)" preset="dialog" :title="editingId ? '编辑配置' : '新建配置'">
       <NSpace vertical style="width: 100%; margin-top: 12px" :size="12">
-        <NInput v-model:value="userLabel" placeholder="便于识别的配置名称，如「家用 OpenAI」" />
-        <NSelect v-model:value="presetId" :options="presetOptions" placeholder="选择服务商或接口预设" @update:value="onPresetChange" />
+        <NInput v-model:value="userLabel" clearable placeholder="便于识别的配置名称，如「家用 OpenAI」" />
+        <NSelect
+          v-model:value="presetId"
+          clearable
+          :options="presetOptions"
+          placeholder="选择服务商或接口预设"
+          @update:value="onPresetChange"
+        />
         <NText depth="3" style="font-size: 13px">主接入（默认）</NText>
-        <NInput v-model:value="baseUrl" placeholder="API 根地址（Base URL），通常已由预设自动填写" />
+        <NInput v-model:value="baseUrl" clearable placeholder="API 根地址（Base URL），通常已由预设自动填写" />
         <div class="app-field-row">
           <NInput
             v-model:value="apiKey"
             type="password"
+            clearable
             show-password-on="click"
             placeholder="主接入 API Key；编辑时留空表示不修改"
             class="app-field-row__grow"
@@ -595,6 +602,7 @@ async function openEdit(r: AiConfig) {
           v-model:value="selectedModel"
           filterable
           tag
+          clearable
           placeholder="默认模型：识图与解题未单独指定时使用"
           :options="modelOptions"
           style="width: 100%"
@@ -612,11 +620,12 @@ async function openEdit(r: AiConfig) {
             clearable
             @update:value="applyVisionPreset"
           />
-          <NInput v-model:value="visionBaseUrl" placeholder="识图侧 Base URL" />
+          <NInput v-model:value="visionBaseUrl" clearable placeholder="识图侧 Base URL" />
           <div class="app-field-row">
             <NInput
               v-model:value="visionApiKey"
               type="password"
+              clearable
               show-password-on="click"
               placeholder="识图侧 API Key；编辑已保存配置时留空表示沿用已存密钥"
               class="app-field-row__grow"
@@ -662,11 +671,12 @@ async function openEdit(r: AiConfig) {
             clearable
             @update:value="applySolvePreset"
           />
-          <NInput v-model:value="solveBaseUrl" placeholder="解题侧 Base URL" />
+          <NInput v-model:value="solveBaseUrl" clearable placeholder="解题侧 Base URL" />
           <div class="app-field-row">
             <NInput
               v-model:value="solveApiKey"
               type="password"
+              clearable
               show-password-on="click"
               placeholder="解题侧 API Key；编辑已保存配置时留空表示沿用已存密钥"
               class="app-field-row__grow"

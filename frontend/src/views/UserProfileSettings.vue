@@ -257,6 +257,7 @@ onBeforeUnmount(revokeAvatarPreview);
             <NFormItem label="登录用户名" :show-feedback="false" label-placement="top" class="user-profile__field">
               <NInput
                 v-model:value="username"
+                clearable
                 placeholder="用于登录，唯一"
                 :disabled="saving"
                 maxlength="64"
@@ -265,13 +266,14 @@ onBeforeUnmount(revokeAvatarPreview);
           </NGridItem>
           <NGridItem>
             <NFormItem label="用户姓名" :show-feedback="false" label-placement="top" class="user-profile__field">
-              <NInput v-model:value="fullName" placeholder="展示名称" :disabled="saving" maxlength="64" />
+              <NInput v-model:value="fullName" clearable placeholder="展示名称" :disabled="saving" maxlength="64" />
             </NFormItem>
           </NGridItem>
           <NGridItem>
             <NFormItem label="教育阶段" :show-feedback="false" label-placement="top" class="user-profile__field">
               <NSelect
                 v-model:value="educationStage"
+                clearable
                 :options="stageOptions"
                 placeholder="请选择"
                 :disabled="saving"
@@ -284,6 +286,7 @@ onBeforeUnmount(revokeAvatarPreview);
                 v-model:value="enrollmentYear"
                 :min="1980"
                 :max="2050"
+                clearable
                 placeholder="例如 2024"
                 style="width: 100%"
                 :disabled="saving"
@@ -304,6 +307,7 @@ onBeforeUnmount(revokeAvatarPreview);
           <NInput
             v-model:value="password"
             type="password"
+            clearable
             show-password-on="click"
             placeholder="不少于 4 位"
             :disabled="saving"
