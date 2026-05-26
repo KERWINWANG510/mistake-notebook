@@ -70,7 +70,7 @@ const navItems = computed<NavItem[]>(() => [
   { label: "年级科目", key: "/grade-subjects", icon: "subject" },
   {
     label: "系统设置",
-    key: "/settings",
+    key: "/settings/profile",
     icon: "settings",
     children: settingsChildren.value,
   },
@@ -103,8 +103,17 @@ function toggleSettingsDrawer() {
 }
 
 function onNavParentClick(item: NavItem) {
-  if (item.children?.length && narrow.value) {
-    toggleSettingsDrawer();
+  if (item.children?.length) {
+    const settingsEntry = "/settings/profile";
+    if (narrow.value) {
+      const opening = !settingsDrawerOpen.value;
+      toggleSettingsDrawer();
+      if (opening && !route.path.startsWith("/settings")) {
+        go(settingsEntry);
+      }
+      return;
+    }
+    go(settingsEntry);
     return;
   }
   go(item.key);
@@ -134,7 +143,7 @@ function go(key: string) {
 
 function navActive(item: NavItem) {
   if (item.children?.length) {
-    return route.path.startsWith(item.key);
+    return route.path.startsWith("/settings");
   }
   return activeKey.value === item.key;
 }

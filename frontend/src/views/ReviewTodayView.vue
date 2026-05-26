@@ -185,7 +185,11 @@ function goPractice(item: ReviewTodayItem) {
 function openDetail(item: ReviewTodayItem) {
   router.push({
     path: `/mistakes/${item.mistake_id}`,
-    query: { grade: item.grade_level_id, subject: item.subject_id },
+    query: {
+      grade: item.grade_level_id,
+      subject: item.subject_id,
+      returnTo: route.fullPath,
+    },
   });
 }
 </script>

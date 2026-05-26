@@ -28,6 +28,7 @@ import {
   mapVisionModelSelectOptions,
   validateEffectiveVisionSelection,
   visionModelOcrError,
+  visionModelOptionFilter,
 } from "../utils/visionModelCapability";
 
 /** OpenAI 兼容接口常用路径，不在表单中展示，固定使用 */
@@ -630,6 +631,7 @@ async function openEdit(r: AiConfig) {
           filterable
           tag
           clearable
+          :filter="visionModelOptionFilter"
           :placeholder="
             separateVision
               ? '识图模型（在识图独立服务商下选择，需先拉取列表）'

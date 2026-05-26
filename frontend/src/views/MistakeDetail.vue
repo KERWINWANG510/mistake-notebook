@@ -42,7 +42,7 @@ async function load() {
     await loadImageBlob();
   } catch (e) {
     message.error((e as Error).message);
-    router.push("/mistakes");
+    router.push(returnPath.value ?? "/mistakes");
   } finally {
     loading.value = false;
   }

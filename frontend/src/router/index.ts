@@ -69,7 +69,7 @@ const router = createRouter({
     {
       path: "/settings",
       component: () => import("../views/SystemSettingsLayout.vue"),
-      redirect: "/settings/general",
+      redirect: "/settings/profile",
       children: [
         {
           path: "profile",

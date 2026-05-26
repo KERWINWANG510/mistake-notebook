@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import type { EChartsOption } from "echarts";
 import * as echarts from "echarts";
-import { NSelect, NSpin, NStatistic, useMessage } from "naive-ui";
+import { NProgress, NSelect, NSpin, useMessage } from "naive-ui";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { RouterLink } from "vue-router";
 import type {
   Grade,
   MistakeStatsErrorReasonHeatmap,
@@ -85,6 +86,30 @@ const subjectFilterOptions = computed(() =>
   tagSubjects.value.map((s) => ({ label: s.name, value: s.id })),
 );
 
+const reviewProgressPercent = computed(() => {
+  const r = reviewStats.value;
+  if (!r?.daily_target) return 0;
+  return Math.min(100, Math.round((r.today_completed / r.daily_target) * 100));
+});
+
+const reviewTargetReached = computed(() => {
+  const r = reviewStats.value;
+  if (!r) return false;
+  return r.daily_target > 0 && r.today_completed >= r.daily_target;
+});
+
+const statsNavItems = [
+  { label: "错题总览", targetId: "stats-overview-heading" },
+  { label: "今日复习", targetId: "stats-review-heading" },
+  { label: "分布图表", targetId: "stats-dist-heading" },
+] as const;
+
+function scrollToStatsSection(targetId: string) {
+  const el = document.getElementById(targetId);
+  if (!el) return;
+  el.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
 function barGradient(index: number, horizontal: boolean) {
   const [c0, c1] = BAR_PALETTE[index % BAR_PALETTE.length];
   return new echarts.graphic.LinearGradient(0, 0, horizontal ? 1 : 0, horizontal ? 0 : 1, [
@@ -108,6 +133,80 @@ function formatTrendDate(iso: string) {
   const p = iso.split("-");
   if (p.length === 3) return `${p[1]}-${p[2]}`;
   return iso;
+}
+
+/** 趋势图横轴：更短日期，减轻 14 日标签拥挤 */
+function formatTrendDateAxis(iso: string) {
+  const p = iso.split("-");
+  if (p.length === 3) return `${Number(p[1])}/${Number(p[2])}`;
+  return iso;
+}
+
+function reviewTrendChartOption(labels: string[], values: number[], compact: boolean): EChartsOption {
+  const n = labels.length;
+  const axisInterval = compact ? (n > 7 ? 2 : 1) : n > 10 ? 1 : 0;
+  const fontSize = compact ? 10 : 11;
+  const areaColor = new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+    { offset: 0, color: "rgba(99, 102, 241, 0.28)" },
+    { offset: 1, color: "rgba(99, 102, 241, 0.02)" },
+  ]);
+  return {
+    tooltip: {
+      trigger: "axis",
+      axisPointer: { type: "line", lineStyle: { color: "#a5b4fc", width: 1 } },
+      formatter: (p: unknown) => {
+        const arr = Array.isArray(p) ? p : [p];
+        const first = arr[0] as { name?: string; value?: number };
+        return `${first?.name ?? ""}<br/>复习题数：${first?.value ?? 0}`;
+      },
+    },
+    grid: {
+      left: "2%",
+      right: "3%",
+      bottom: compact ? "12%" : "14%",
+      top: "14%",
+      containLabel: true,
+    },
+    xAxis: {
+      type: "category",
+      data: labels,
+      boundaryGap: false,
+      axisLine: { lineStyle: { color: "#e2e8f0" } },
+      axisTick: { show: true, alignWithLabel: true, interval: axisInterval },
+      axisLabel: {
+        color: "#64748b",
+        fontSize,
+        interval: axisInterval,
+        rotate: compact ? 0 : 24,
+        margin: 10,
+        hideOverlap: true,
+        showMinLabel: true,
+        showMaxLabel: true,
+      },
+    },
+    yAxis: {
+      type: "value",
+      name: "题数",
+      nameTextStyle: { color: "#94a3b8", fontSize, padding: [0, 0, 0, 4] },
+      minInterval: 1,
+      axisLabel: { color: "#64748b", fontSize },
+      splitLine: { lineStyle: { color: "#f1f5f9", type: "dashed" } },
+    },
+    series: [
+      {
+        type: "line",
+        smooth: 0.35,
+        symbol: "circle",
+        symbolSize: compact ? 5 : 6,
+        showSymbol: n <= 14,
+        lineStyle: { width: 2.5, color: "#6366f1" },
+        itemStyle: { color: "#6366f1", borderColor: "#fff", borderWidth: 2 },
+        areaStyle: { color: areaColor },
+        emphasis: { focus: "series", scale: true },
+        data: values,
+      },
+    ],
+  };
 }
 
 function pieChart(
@@ -436,14 +535,14 @@ function renderReviewCharts(data: ReviewStatsCharts) {
   const compact = narrow.value;
 
   if (wrapReviewTrend.value) {
-    const labels = data.daily_trend.map((r) => formatTrendDate(r.date));
+    const labels = data.daily_trend.map((r) => formatTrendDateAxis(r.date));
     const vals = data.daily_trend.map((r) => r.review_count);
     const has = vals.some((v) => v > 0);
     chartReviewTrend?.dispose();
     chartReviewTrend = echarts.init(wrapReviewTrend.value);
     chartReviewTrend.setOption(
       has
-        ? verticalBar(labels, vals, "复习题数", compact)
+        ? reviewTrendChartOption(labels, vals, compact)
         : emptyOption("近 14 日暂无复习记录"),
       true,
     );
@@ -647,79 +746,113 @@ onBeforeUnmount(() => {
           汇总当前账号的错题掌握、复习打卡与多维分布；知识点标签支持按年级、科目筛选。
         </p>
       </div>
-      <div class="statistics-hero__chips" aria-label="统计模块">
-        <span class="statistics-hero__chip">错题总览</span>
-        <span class="statistics-hero__chip">今日复习</span>
-        <span class="statistics-hero__chip">分布图表</span>
-      </div>
+      <nav class="statistics-hero__nav" aria-label="跳转到统计分区">
+        <button
+          v-for="item in statsNavItems"
+          :key="item.targetId"
+          type="button"
+          class="statistics-hero__nav-btn"
+          @click="scrollToStatsSection(item.targetId)"
+        >
+          {{ item.label }}
+        </button>
+      </nav>
     </header>
 
     <NSpin :show="loading">
       <div v-if="overview" class="statistics-layout">
-        <section class="statistics-section" aria-labelledby="stats-overview-heading">
-          <div class="statistics-section__head">
-            <h2 id="stats-overview-heading" class="statistics-section__title">错题总览</h2>
-          </div>
-          <div class="statistics-kpi-grid statistics-kpi-grid--3">
-            <article class="statistics-kpi statistics-kpi--total">
-              <NStatistic label="累计错题" tabular-nums :value="overview.total_mistake_count" />
-            </article>
-            <article class="statistics-kpi statistics-kpi--mastered">
-              <NStatistic label="已掌握" tabular-nums :value="overview.mastered_count" />
-            </article>
-            <article class="statistics-kpi statistics-kpi--accent">
-              <NStatistic
-                label="掌握率"
-                tabular-nums
-                :value="overview.mastery_rate_percent"
-                :precision="1"
-                suffix="%"
-              />
-            </article>
-          </div>
-        </section>
-
-        <section v-if="reviewStats" class="statistics-section" aria-labelledby="stats-review-heading">
-          <div class="statistics-section__head">
-            <h2 id="stats-review-heading" class="statistics-section__title">今日复习</h2>
-            <p class="statistics-section__hint">近 14 日趋势与打卡结果</p>
-          </div>
-          <div class="statistics-kpi-grid statistics-kpi-grid--4">
-            <article class="statistics-kpi statistics-kpi--review">
-              <NStatistic label="连续打卡" tabular-nums :value="reviewStats.streak_days" suffix=" 天" />
-            </article>
-            <article class="statistics-kpi statistics-kpi--review">
-              <NStatistic label="今日进度" tabular-nums>
-                <span class="statistics-kpi__value-inline">
-                  {{ reviewStats.today_completed }} / {{ reviewStats.daily_target }}
+        <section class="statistics-dash" aria-label="错题总览与今日复习">
+          <div class="statistics-overview-strip" aria-labelledby="stats-overview-heading">
+            <h2 id="stats-overview-heading" class="statistics-overview-strip__title">错题总览</h2>
+            <div class="statistics-overview-strip__metrics" role="list">
+              <div class="overview-pill" role="listitem">
+                <span class="overview-pill__label">累计</span>
+                <span class="overview-pill__value" tabular-nums>{{ overview.total_mistake_count }}</span>
+              </div>
+              <div class="overview-pill overview-pill--muted" role="listitem">
+                <span class="overview-pill__label">已掌握</span>
+                <span class="overview-pill__value" tabular-nums>{{ overview.mastered_count }}</span>
+              </div>
+              <div class="overview-pill overview-pill--accent" role="listitem">
+                <span class="overview-pill__label">掌握率</span>
+                <span class="overview-pill__value overview-pill__value--accent" tabular-nums>
+                  {{ overview.mastery_rate_percent.toFixed(1) }}%
                 </span>
-              </NStatistic>
-            </article>
-            <article class="statistics-kpi statistics-kpi--review">
-              <NStatistic label="待复习（今日到期）" tabular-nums :value="reviewStats.due_total" />
-            </article>
-            <article class="statistics-kpi statistics-kpi--review">
-              <NStatistic label="累计复习次数" tabular-nums :value="reviewStats.total_reviewed_all_time" />
-            </article>
-          </div>
-          <div class="statistics-chart-grid statistics-chart-grid--2">
-            <article class="statistics-panel">
-              <header class="statistics-panel__head">
-                <span class="statistics-panel__title">近 14 日复习题数</span>
-              </header>
-              <div class="statistics-panel__body">
-                <div ref="wrapReviewTrend" class="statistics-chart" />
               </div>
-            </article>
-            <article class="statistics-panel">
-              <header class="statistics-panel__head">
-                <span class="statistics-panel__title">复习结果分布</span>
-              </header>
-              <div class="statistics-panel__body">
-                <div ref="wrapReviewResult" class="statistics-chart" />
-              </div>
-            </article>
+            </div>
           </div>
+
+          <article
+            v-if="reviewStats"
+            class="statistics-dash__card statistics-dash__card--review"
+            aria-labelledby="stats-review-heading"
+          >
+            <header class="statistics-dash__head">
+              <div class="statistics-dash__head-main">
+                <span class="statistics-dash__glyph statistics-dash__glyph--review" aria-hidden="true" />
+                <div>
+                  <h2 id="stats-review-heading" class="statistics-dash__title">今日复习</h2>
+                  <p class="statistics-dash__sub">近 14 日趋势与打卡</p>
+                </div>
+              </div>
+              <RouterLink to="/review" class="statistics-dash__link">去复习</RouterLink>
+            </header>
+            <div class="statistics-dash__metrics statistics-dash__metrics--4">
+              <div class="stat-metric stat-metric--review">
+                <span class="stat-metric__label">连续打卡</span>
+                <span class="stat-metric__value stat-metric__value--review" tabular-nums>
+                  {{ reviewStats.streak_days }}<small class="stat-metric__unit">天</small>
+                </span>
+              </div>
+              <div class="stat-metric stat-metric--review stat-metric--progress">
+                <div class="stat-metric__progress-head">
+                  <span class="stat-metric__label">今日进度</span>
+                  <span class="stat-metric__value stat-metric__value--sm" tabular-nums>
+                    {{ reviewStats.today_completed }} / {{ reviewStats.daily_target }}
+                  </span>
+                </div>
+                <NProgress
+                  type="line"
+                  :percentage="reviewProgressPercent"
+                  :show-indicator="false"
+                  :height="5"
+                  :border-radius="4"
+                  :color="reviewTargetReached ? '#10b981' : '#6366f1'"
+                  rail-color="rgba(99, 102, 241, 0.12)"
+                />
+              </div>
+              <div class="stat-metric stat-metric--review">
+                <span class="stat-metric__label">今日到期</span>
+                <span class="stat-metric__value stat-metric__value--review" tabular-nums>
+                  {{ reviewStats.due_total }}
+                </span>
+              </div>
+              <div class="stat-metric stat-metric--review">
+                <span class="stat-metric__label">累计复习</span>
+                <span class="stat-metric__value stat-metric__value--review" tabular-nums>
+                  {{ reviewStats.total_reviewed_all_time }}
+                </span>
+              </div>
+            </div>
+            <div class="statistics-dash__charts">
+              <article class="statistics-panel statistics-panel--compact statistics-panel--trend">
+                <header class="statistics-panel__head statistics-panel__head--compact">
+                  <span class="statistics-panel__title">近 14 日复习题数</span>
+                </header>
+                <div class="statistics-panel__body statistics-panel__body--compact">
+                  <div ref="wrapReviewTrend" class="statistics-chart statistics-chart--trend" />
+                </div>
+              </article>
+              <article class="statistics-panel statistics-panel--compact">
+                <header class="statistics-panel__head statistics-panel__head--compact">
+                  <span class="statistics-panel__title">复习结果分布</span>
+                </header>
+                <div class="statistics-panel__body statistics-panel__body--compact">
+                  <div ref="wrapReviewResult" class="statistics-chart statistics-chart--compact" />
+                </div>
+              </article>
+            </div>
+          </article>
         </section>
 
         <section class="statistics-section" aria-labelledby="stats-dist-heading">
@@ -811,15 +944,21 @@ onBeforeUnmount(() => {
 .statistics-hero {
   display: flex;
   flex-wrap: wrap;
-  align-items: flex-start;
+  align-items: flex-end;
   justify-content: space-between;
-  gap: 14px 20px;
-  margin-bottom: 20px;
-  padding: 18px 20px;
-  border-radius: 16px;
+  gap: 12px 16px;
+  margin-bottom: 16px;
+  padding: 14px 16px;
+  border-radius: 14px;
   border: 1px solid rgba(148, 163, 184, 0.22);
   background: linear-gradient(135deg, rgba(99, 102, 241, 0.08) 0%, rgba(255, 255, 255, 0.98) 52%);
   box-shadow: var(--app-shadow, 0 4px 24px rgba(15, 23, 42, 0.06));
+}
+
+#stats-overview-heading,
+#stats-review-heading,
+#stats-dist-heading {
+  scroll-margin-top: 76px;
 }
 
 .statistics-hero__title {
@@ -838,21 +977,42 @@ onBeforeUnmount(() => {
   color: var(--app-text-muted, #64748b);
 }
 
-.statistics-hero__chips {
+.statistics-hero__nav {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  align-self: center;
+  gap: 6px;
+  flex-shrink: 0;
 }
 
-.statistics-hero__chip {
-  padding: 6px 12px;
+.statistics-hero__nav-btn {
+  padding: 5px 11px;
   border-radius: 999px;
   font-size: 12px;
   font-weight: 600;
   color: #4338ca;
-  background: rgba(99, 102, 241, 0.1);
-  border: 1px solid rgba(99, 102, 241, 0.18);
+  background: rgba(99, 102, 241, 0.08);
+  border: 1px solid rgba(99, 102, 241, 0.22);
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease,
+    transform 0.12s ease;
+}
+
+.statistics-hero__nav-btn:hover {
+  color: #3730a3;
+  background: rgba(99, 102, 241, 0.14);
+  border-color: rgba(99, 102, 241, 0.35);
+}
+
+.statistics-hero__nav-btn:active {
+  transform: scale(0.98);
+}
+
+.statistics-hero__nav-btn:focus-visible {
+  outline: 2px solid rgba(99, 102, 241, 0.45);
+  outline-offset: 2px;
 }
 
 .statistics-layout {
@@ -861,7 +1021,283 @@ onBeforeUnmount(() => {
   width: 100%;
   display: flex;
   flex-direction: column;
-  gap: 28px;
+  gap: 22px;
+}
+
+/* 顶部仪表盘：错题总览 + 今日复习 */
+.statistics-dash {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.statistics-overview-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(129, 140, 248, 0.2);
+  background: linear-gradient(90deg, rgba(238, 242, 255, 0.75) 0%, rgba(255, 255, 255, 0.95) 55%);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.statistics-overview-strip__title {
+  margin: 0;
+  flex-shrink: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: #0f172a;
+  letter-spacing: -0.02em;
+  padding-right: 10px;
+  border-right: 1px solid rgba(148, 163, 184, 0.35);
+}
+
+.statistics-overview-strip__metrics {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  flex: 1;
+  min-width: 0;
+}
+
+.overview-pill {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.overview-pill__label {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--app-text-muted, #64748b);
+  white-space: nowrap;
+}
+
+.overview-pill__value {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #0f172a;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+
+.overview-pill__value--accent {
+  color: #059669;
+}
+
+.overview-pill--accent .overview-pill__label {
+  color: #047857;
+}
+
+.statistics-dash__card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px 14px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04), 0 6px 20px rgba(99, 102, 241, 0.06);
+}
+
+.statistics-dash__card--review {
+  background: linear-gradient(160deg, rgba(245, 243, 255, 0.7) 0%, #fff 52%);
+  border-color: rgba(139, 92, 246, 0.18);
+}
+
+.statistics-dash__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 36px;
+}
+
+.statistics-dash__head-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.statistics-dash__glyph {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  flex-shrink: 0;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 18px 18px;
+}
+
+.statistics-dash__glyph--overview {
+  background-color: rgba(99, 102, 241, 0.12);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%234f46e5' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='M4 19.5A2.5 2.5 0 0 1 6.5 17H20'/%3E%3Cpath d='M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z'/%3E%3C/svg%3E");
+}
+
+.statistics-dash__glyph--review {
+  background-color: rgba(139, 92, 246, 0.12);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%237c3aed' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='M12 20V10'/%3E%3Cpath d='M18 20V4'/%3E%3Cpath d='M6 20v-4'/%3E%3C/svg%3E");
+}
+
+.statistics-dash__title {
+  margin: 0;
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: #0f172a;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+}
+
+.statistics-dash__sub {
+  margin: 2px 0 0;
+  font-size: 11px;
+  color: var(--app-text-subtle, #94a3b8);
+  line-height: 1.3;
+}
+
+.statistics-dash__link {
+  flex-shrink: 0;
+  padding: 5px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #5b21b6;
+  text-decoration: none;
+  background: rgba(139, 92, 246, 0.1);
+  border: 1px solid rgba(139, 92, 246, 0.2);
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
+}
+
+.statistics-dash__link:hover {
+  color: #4c1d95;
+  background: rgba(139, 92, 246, 0.16);
+}
+
+.statistics-dash__metrics {
+  display: grid;
+  gap: 8px;
+}
+
+.statistics-dash__metrics--4 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+@media (min-width: 520px) {
+  .statistics-dash__metrics--4 {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.stat-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(226, 232, 240, 0.75);
+}
+
+.stat-metric--review {
+  border-color: rgba(167, 139, 250, 0.22);
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.stat-metric--progress {
+  gap: 6px;
+}
+
+.stat-metric__label {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--app-text-muted, #64748b);
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.stat-metric__value {
+  font-size: 1.28rem;
+  font-weight: 700;
+  color: #0f172a;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+}
+
+.stat-metric__value--review {
+  color: #4f46e5;
+}
+
+.stat-metric__value--sm {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #4338ca;
+}
+
+.stat-metric__unit {
+  margin-left: 2px;
+  font-size: 0.72em;
+  font-weight: 600;
+  color: #6366f1;
+}
+
+.stat-metric__progress-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.statistics-dash__charts {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 1fr;
+  margin-top: 2px;
+}
+
+@media (min-width: 640px) {
+  .statistics-dash__charts {
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.85fr);
+    align-items: stretch;
+  }
+}
+
+.statistics-panel--compact {
+  border-radius: 12px;
+  box-shadow: none;
+  border-color: rgba(226, 232, 240, 0.85);
+}
+
+.statistics-panel__head--compact {
+  padding: 8px 12px 6px;
+}
+
+.statistics-panel__body--compact {
+  padding: 2px 8px 8px;
+}
+
+.statistics-chart--compact {
+  height: 240px;
+  min-height: 240px;
+  max-height: 240px;
+}
+
+.statistics-chart--trend {
+  height: 252px;
+  min-height: 252px;
+  max-height: 252px;
 }
 
 /* 分区 */
@@ -903,114 +1339,6 @@ onBeforeUnmount(() => {
   margin: 0;
   font-size: 12px;
   color: var(--app-text-subtle, #94a3b8);
-}
-
-/* KPI */
-.statistics-kpi-grid {
-  display: grid;
-  gap: 12px;
-}
-
-.statistics-kpi-grid--3 {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.statistics-kpi-grid--4 {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-}
-
-.statistics-kpi {
-  position: relative;
-  padding: 16px 18px;
-  border-radius: 14px;
-  border: 1px solid rgba(226, 232, 240, 0.92);
-  background: #fff;
-  box-shadow: 0 2px 12px rgba(15, 23, 42, 0.04);
-  overflow: hidden;
-  transition:
-    box-shadow 0.2s ease,
-    transform 0.2s ease;
-}
-
-.statistics-kpi:hover {
-  box-shadow: 0 8px 24px rgba(99, 102, 241, 0.1);
-  transform: translateY(-1px);
-}
-
-.statistics-kpi::after {
-  content: "";
-  position: absolute;
-  top: 0;
-  right: 0;
-  width: 72px;
-  height: 72px;
-  border-radius: 0 0 0 72px;
-  opacity: 0.35;
-  pointer-events: none;
-}
-
-.statistics-kpi--total {
-  background: linear-gradient(145deg, #f5f7ff 0%, #fff 70%);
-  border-color: rgba(129, 140, 248, 0.25);
-}
-
-.statistics-kpi--total::after {
-  background: radial-gradient(circle at 100% 0%, #818cf8 0%, transparent 70%);
-}
-
-.statistics-kpi--mastered {
-  background: linear-gradient(145deg, #f8fafc 0%, #fff 70%);
-}
-
-.statistics-kpi--mastered::after {
-  background: radial-gradient(circle at 100% 0%, #94a3b8 0%, transparent 70%);
-}
-
-.statistics-kpi--accent {
-  background: linear-gradient(145deg, #ecfdf5 0%, #fff 70%);
-  border-color: rgba(16, 185, 129, 0.22);
-}
-
-.statistics-kpi--accent::after {
-  background: radial-gradient(circle at 100% 0%, #34d399 0%, transparent 70%);
-}
-
-.statistics-kpi--review {
-  background: linear-gradient(145deg, #faf5ff 0%, #fff 72%);
-  border-color: rgba(139, 92, 246, 0.2);
-}
-
-.statistics-kpi--review::after {
-  background: radial-gradient(circle at 100% 0%, #a78bfa 0%, transparent 70%);
-}
-
-.statistics-kpi :deep(.n-statistic__label) {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--app-text-muted, #64748b);
-}
-
-.statistics-kpi :deep(.n-statistic-value__content) {
-  font-size: clamp(1.35rem, 4vw, 1.75rem);
-  font-weight: 700;
-  color: #0f172a;
-  letter-spacing: -0.02em;
-}
-
-.statistics-kpi--accent :deep(.n-statistic-value__content) {
-  color: #059669;
-}
-
-.statistics-kpi--review :deep(.n-statistic-value__content) {
-  color: #4f46e5;
-}
-
-.statistics-kpi__value-inline {
-  font-size: clamp(1.2rem, 3.5vw, 1.5rem);
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  color: #4f46e5;
-  line-height: 1.2;
 }
 
 /* 图表区 */
@@ -1135,57 +1463,87 @@ onBeforeUnmount(() => {
     margin-top: 6px;
   }
 
-  .statistics-hero__chips {
+  .statistics-hero__nav {
     width: 100%;
   }
 
+  .statistics-hero__nav-btn {
+    flex: 1 1 auto;
+    text-align: center;
+    min-width: 0;
+  }
+
   .statistics-layout {
-    gap: 20px;
+    gap: 16px;
   }
 
   .statistics-section__title {
     font-size: 0.95rem;
   }
 
-  .statistics-kpi-grid--3 {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 8px;
+  .statistics-overview-strip {
+    padding: 8px 10px;
+    gap: 6px 10px;
   }
 
-  .statistics-kpi-grid--4 {
+  .statistics-overview-strip__title {
+    width: 100%;
+    padding-right: 0;
+    padding-bottom: 4px;
+    border-right: none;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.25);
+  }
+
+  .statistics-overview-strip__metrics {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .overview-pill__value {
+    font-size: 0.98rem;
+  }
+
+  .statistics-dash__card {
+    padding: 10px 12px 12px;
+  }
+
+  .statistics-dash__glyph {
+    width: 30px;
+    height: 30px;
+    background-size: 16px 16px;
+  }
+
+  .statistics-dash__metrics--4 {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 8px;
+    gap: 6px;
   }
 
-  .statistics-kpi {
-    padding: 10px 8px;
-    text-align: center;
-    border-radius: 12px;
+  .stat-metric--progress {
+    grid-column: 1 / -1;
   }
 
-  .statistics-kpi:hover {
-    transform: none;
+  .stat-metric {
+    padding: 7px 8px;
   }
 
-  .statistics-kpi::after {
-    display: none;
+  .stat-metric__value {
+    font-size: 1.12rem;
   }
 
-  .statistics-kpi :deep(.n-statistic) {
-    align-items: center;
+  .statistics-dash__charts {
+    grid-template-columns: 1fr;
   }
 
-  .statistics-kpi :deep(.n-statistic__label) {
-    font-size: 11px;
-    line-height: 1.3;
+  .statistics-chart--compact {
+    height: 220px;
+    min-height: 220px;
+    max-height: 220px;
   }
 
-  .statistics-kpi :deep(.n-statistic-value__content) {
-    font-size: 1.25rem;
-  }
-
-  .statistics-kpi__value-inline {
-    font-size: 1.15rem;
+  .statistics-chart--trend {
+    height: 236px;
+    min-height: 236px;
+    max-height: 236px;
   }
 
   .statistics-chart-grid {

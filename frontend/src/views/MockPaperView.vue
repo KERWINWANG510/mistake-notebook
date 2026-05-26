@@ -650,7 +650,6 @@ function onPrint() {
 <template>
   <div class="page-root mock-paper-page">
     <header class="page-header mock-paper-header mock-paper-hero mock-paper-no-print">
-      <span class="mock-paper-hero__eyebrow">AI 组卷</span>
       <h1 class="page-header__title mock-paper-hero__title">模拟练习卷</h1>
       <p class="page-header__desc mock-paper-hero__desc">
         在左侧选择年级与科目，按需限定知识点与题型；生成后可在右侧预览，使用打印或导出 PDF 留存。
@@ -1019,21 +1018,6 @@ function onPrint() {
 .mock-paper-hero {
   position: relative;
   padding-top: 2px;
-}
-
-.mock-paper-hero__eyebrow {
-  display: inline-flex;
-  align-items: center;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: #4338ca;
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.14), rgba(139, 92, 246, 0.1));
-  border: 1px solid rgba(99, 102, 241, 0.26);
-  padding: 4px 11px;
-  border-radius: 999px;
-  margin-bottom: 8px;
 }
 
 .mock-paper-hero__title {

@@ -114,14 +114,24 @@ export type VisionSelectOption = {
 export function mapVisionModelSelectOptions(
   items: { label: string; value: string }[],
 ): VisionSelectOption[] {
-  return items.map((item) => {
-    const id = item.value;
-    if (isKnownTextOnlyModel(id)) {
-      return { label: `${id}（不支持 OCR 识图）`, value: id, disabled: true };
-    }
-    if (!isLikelyVisionCapableModel(id)) {
-      return { label: `${id}（可能不支持识图）`, value: id };
-    }
-    return { label: id, value: id };
-  });
+  return items
+    .filter((item) => !isKnownTextOnlyModel(item.value))
+    .map((item) => {
+      const id = item.value;
+      if (!isLikelyVisionCapableModel(id)) {
+        return { label: `${id}（可能不支持识图）`, value: id };
+      }
+      return { label: id, value: id };
+    });
+}
+
+/** 识图模型下拉筛选：隐藏纯文本模型，仅保留与输入匹配的选项 */
+export function visionModelOptionFilter(pattern: string, option: VisionSelectOption): boolean {
+  const id = String(option.value ?? '');
+  if (isKnownTextOnlyModel(id)) return false;
+  const p = pattern.trim().toLowerCase();
+  if (!p) return true;
+  const raw = id.toLowerCase();
+  const label = String(option.label ?? '').toLowerCase();
+  return raw.includes(p) || label.includes(p);
 }
